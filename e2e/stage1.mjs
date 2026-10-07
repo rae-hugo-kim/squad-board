@@ -68,6 +68,17 @@ const row2 = await page.locator("tbody tr", { hasText: "Rae" }).innerText();
 check(row2.includes("오멘") && row2.includes("브림스톤"), "연속 저장 후에도 값 유지");
 await page.screenshot({ path: `${shots}/03-prefs-saved.png` });
 
+// 선호 역할군 (프로필 단위)
+await page.selectOption("select[name=role1]", "controller");
+await page.selectOption("select[name=role2]", "sentinel");
+await page.click("button:has-text('역할군 저장')");
+await page.waitForSelector("form:has(select[name=role1]) >> text=저장했습니다");
+await page.reload();
+await page.waitForLoadState("networkidle");
+const roleRow = await page.locator("tbody tr", { hasText: "Rae" }).innerText();
+check(roleRow.includes("전략가") && roleRow.includes("감시자"), "선호 역할군이 매트릭스에 표시");
+check((await page.inputValue("select[name=role1]")) === "controller", "역할군 폼에 저장값 로드");
+
 // 감도
 await page.fill("input[name=dpi]", "800");
 await page.fill("input[name=sens]", "0.32");

@@ -94,7 +94,7 @@ export function CompositionCard({
             {current.slots.map((s) => {
               const agentId = assignment[s.memberId] ?? "";
               const agent = agentId ? agentById.get(agentId) : undefined;
-              const hasPref = Boolean(memberById.get(s.memberId)?.pref);
+              const hasPref = Boolean(memberById.get(s.memberId)?.pref?.agentIds.some(Boolean));
               return (
                 <tr key={s.memberId} className="border-t border-line">
                   <td className="py-2 pr-3 font-medium">{s.nickname}</td>
@@ -113,15 +113,18 @@ export function CompositionCard({
                     </span>
                   </td>
                   <td className="py-2 pr-3 text-xs">
-                    {!hasPref ? (
-                      <span className="text-warning">미입력</span>
-                    ) : s.rank ? (
-                      <span className="text-secondary">{s.rank}순위</span>
-                    ) : agentId ? (
-                      <span className="text-warning">선호 밖</span>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
+                    <span className="inline-flex flex-wrap gap-1">
+                      {!hasPref ? (
+                        <span className="text-warning">요원 미입력</span>
+                      ) : s.rank ? (
+                        <span className="text-secondary">요원 {s.rank}순위</span>
+                      ) : agentId ? (
+                        <span className="text-warning">선호 밖</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                      {s.roleRank ? <span className="text-info">역할군 {s.roleRank}순위</span> : null}
+                    </span>
                   </td>
                   <td className="py-2 pr-3 text-[13px] text-secondary">
                     {[s.attackPosition, s.defensePosition].filter(Boolean).join(" / ") || <span className="text-muted">—</span>}

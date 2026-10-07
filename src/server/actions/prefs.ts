@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { maps, memberMapPreferences, members } from "@/db/schema";
+import { maps, memberMapPreferences, members, ROLE_GROUPS } from "@/db/schema";
 import { requireMember } from "@/lib/auth";
 import { createLogger, errorMeta } from "@/lib/logger";
 import type { ActionResult } from "./auth";
@@ -150,6 +150,33 @@ export async function saveMyCrosshairAction(_prev: ActionResult | null, formData
     return { ok: true };
   } catch (err) {
     log.error("crosshair save failed", { memberId: me.id, ...errorMeta(err) });
+    return { ok: false, error: "저장 중 오류가 났습니다" };
+  }
+}
+
+const rolePrefSchema = z
+  .array(z.enum(ROLE_GROUPS))
+  .max(3, "선호 역할군은 3개까지입니다")
+  .refine((arr) => new Set(arr).size === arr.length, "같은 역할군을 두 번 고를 수 없습니다");
+
+/**
+ * 내 선호 역할군 1~3순위 저장 (프로필 단위 — 맵과 무관). 선호 요원과 별개로 두는 이유:
+ * 요원은 맵마다 다르지만 "나는 전략가가 편하다"는 성향은 맵과 무관하고, 선호 요원을 아직 안 적은 맵에서
+ * 편성기가 역할군 요원을 후보로 삼을 수 있다. 빈 값(순위 생략)은 걸러 낸다.
+ */
+export async function saveMyRolePreferenceAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const me = await requireMember();
+  const raw = ["role1", "role2", "role3"].map((k) => formData.get(k)).filter((v): v is string => typeof v === "string" && v.length > 0);
+  const parsed = rolePrefSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "입력을 확인하세요" };
+  try {
+    await db.update(members).set({ rolePreference: parsed.data, updatedAt: new Date().toISOString() }).where(eq(members.id, me.id));
+    log.info("role preference saved", { memberId: me.id, roles: parsed.data });
+    revalidatePath("/prefs");
+    revalidatePath("/squad");
+    return { ok: true };
+  } catch (err) {
+    log.error("role preference save failed", { memberId: me.id, ...errorMeta(err) });
     return { ok: false, error: "저장 중 오류가 났습니다" };
   }
 }
