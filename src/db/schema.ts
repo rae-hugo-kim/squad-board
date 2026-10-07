@@ -17,7 +17,12 @@ import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-or
 export const ROLE_GROUPS = ["duelist", "initiator", "controller", "sentinel"] as const;
 export type RoleGroup = (typeof ROLE_GROUPS)[number];
 
-export const MEMBER_ROLES = ["admin", "member"] as const;
+/**
+ * 멤버 티어. admin(관리) > tactician(전술가) > member(일반).
+ * 전술가는 맵별 "공통 전술"(tactics.isShared)을 만들고 다른 전술가의 공통 전술도 고칠 수 있다.
+ * 관리자 전용 기능(멤버·맵 풀·확정 경기 수정)은 그대로 admin만.
+ */
+export const MEMBER_ROLES = ["admin", "tactician", "member"] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
 
 /** 경기 결과. 스코어와 별도로 두는 이유: 무승부(12:12)·몰수 등 스코어만으로 판정이 애매한 경우가 있다. */
@@ -109,6 +114,11 @@ export const maps = sqliteTable("maps", {
   listIconUrl: text("list_icon_url"),
   /** 공식 콜아웃 목록 (assets:sync). 보드에서 라벨 켜기/끄기. */
   callouts: text("callouts", { mode: "json" }).$type<MapCallout[]>().notNull().default([]),
+  /**
+   * 보드 한 변(미니맵 전체 폭)이 게임 세계 좌표로 몇 유닛인지 (1m = 100유닛). 공식 데이터의 xMultiplier 역수로
+   * assets:sync가 채운다. 스킬 범위(연막 4.1m 등)를 맵마다 같은 실제 크기로 그리기 위한 값. 없으면 기본값 사용.
+   */
+  unitsPerBoard: real("units_per_board"),
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
@@ -271,6 +281,16 @@ export const tactics = sqliteTable(
     authorId: text("author_id").references(() => members.id, { onDelete: "set null" }),
     /** 겹쳐보기 색조 1~8 (--layer-N). 생성 시 자동 배정. */
     layerHue: integer("layer_hue").notNull().default(1),
+    /**
+     * 공통 전술 여부. 전술가·관리자만 만들 수 있고, 모든 전술가가 함께 고친다(개인 전술은 작성자만).
+     * 랜딩의 "오늘의 스쿼드"는 공통 전술만 후보로 삼는다.
+     */
+    isShared: integer("is_shared", { mode: "boolean" }).notNull().default(false),
+    /**
+     * 추천 조합 우선도. 1이 가장 높고 0은 "미지정"(가장 뒤). 오늘 참가자로 실행 가능한 공통 전술 중
+     * 우선도가 가장 높은 것을 고른다 — 실행 불가면 우선도와 상관없이 건너뛴다(포기).
+     */
+    priority: integer("priority").notNull().default(0),
     createdAt: text("created_at").notNull().default(now),
     updatedAt: text("updated_at").notNull().default(now),
   },
@@ -328,7 +348,7 @@ export const tacticObjects = sqliteTable(
     abilityKey: text("ability_key"),
     /** 스킬 시전 위치(cast) ↔ 떨어지는 핑을 잇는 연결 */
     linkedObjectId: text("linked_object_id"),
-    /** 외부 라인업 링크 (Easy Lineup 등) */
+    /** 외부 라인업 링크 (Lineups Valorant 등) */
     externalUrl: text("external_url"),
     sortOrder: integer("sort_order").notNull().default(0),
   },

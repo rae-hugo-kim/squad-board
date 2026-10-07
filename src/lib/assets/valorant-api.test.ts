@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { calloutToBoard, mapAgent, mapMap, slugify, ROLE_BY_EN, ABILITY_KEY_BY_SLOT } from "./valorant-api";
+import { calloutToBoard, mapAgent, mapMap, slugify, ROLE_BY_EN, ABILITY_KEY_BY_SLOT, unitsPerBoardOf } from "./valorant-api";
 
 /**
  * 공식 에셋 API(valorant-api.com, Riot 게임 데이터 미러) 응답 → 우리 DB 행 변환. 네트워크 없이 고정 응답으로 검사한다.
@@ -90,4 +90,12 @@ test("맵: 경쟁 맵(tacticalDescription 있음)만, 미니맵·스플래시·�
   assert.equal(row!.callouts[0].region, "A");
   assert.equal(mapMap({ ...mapEn, tacticalDescription: null }, mapEn), null, "사격장 등 비경쟁 맵은 제외");
   assert.equal(mapMap({ ...mapEn, displayIcon: null }, mapEn), null, "미니맵이 없으면 제외");
+});
+
+test("맵: 미니맵 폭의 게임 유닛 수는 xMultiplier 역수 (0.00007 → 14286), 값이 없으면 null", () => {
+  assert.equal(unitsPerBoardOf(mapEn), 14286);
+  assert.equal(unitsPerBoardOf({ xMultiplier: -0.00007 }), 14286, "부호는 축 방향일 뿐이라 절댓값");
+  assert.equal(unitsPerBoardOf({ xMultiplier: 0 }), null);
+  assert.equal(unitsPerBoardOf({ xMultiplier: Number.NaN }), null);
+  assert.equal(mapMap(mapEn, undefined)!.unitsPerBoard, 14286);
 });

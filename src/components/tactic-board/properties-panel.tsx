@@ -175,7 +175,7 @@ export function PropertiesPanel({
 
         {(meta.isAbility || obj.kind === "cast") ? (
           <label className="block">
-            <span className="label">외부 라인업 링크 (Easy Lineup · Valoline 등)</span>
+            <span className="label">외부 라인업 링크 (Lineups Valorant · Valoline 등)</span>
             <input value={obj.externalUrl ?? ""} onChange={(e) => onChange({ externalUrl: e.target.value || null })} placeholder="https://" className="input py-1.5 font-mono text-xs" />
           </label>
         ) : null}

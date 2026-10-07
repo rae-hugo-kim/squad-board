@@ -6,6 +6,8 @@ import { arrowHead, BOARD, sectorPath, starPoints } from "@/lib/tactics/geometry
 import { ALLY_COLOR, ENEMY_COLOR, OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 
 export type AgentLite = { id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null; abilities?: Ability[] };
+/** 오늘의 라인업에서 슬롯에 바인딩된 멤버 (src/lib/squad/lineup.ts SlotMember와 같은 모양) */
+export type SlotMemberLite = { memberId: string; nickname: string; agentId: string | null };
 
 /** 스킬 핑 중앙에 올리는 공식 스킬 아이콘 배지. 아이콘이 없으면 아무것도 그리지 않는다(도형만). */
 function AbilityBadge({ obj, agentById, cx, cy, scale }: { obj: BoardObject; agentById: Map<string, AgentLite>; cx: number; cy: number; scale: number }) {
@@ -29,12 +31,14 @@ function AbilityBadge({ obj, agentById, cx, cy, scale }: { obj: BoardObject; age
 export function ObjectShape({
   obj,
   agentById,
+  slotMembers,
   hue,
   selected,
   scale,
 }: {
   obj: BoardObject;
   agentById: Map<string, AgentLite>;
+  slotMembers?: Record<number, SlotMemberLite>;
   hue?: string | null;
   selected?: boolean;
   /** 현재 확대 배율 — 선 두께·글자를 화면에서 일정하게 보이도록 나눈다 */
@@ -62,8 +66,20 @@ export function ObjectShape({
     case "agent": {
       const team = obj.team ?? "ally";
       const fill = hue ?? (team === "enemy" ? ENEMY_COLOR : ALLY_COLOR);
-      const agent = obj.casterAgentId ? agentById.get(obj.casterAgentId) : undefined;
+      // 라인업이 있으면 슬롯 토큰에 그 슬롯을 맡은 멤버의 요원을 보여준다 (토큰에 요원이 지정되어 있지 않을 때)
+      const bound = obj.slotNo && team === "ally" ? slotMembers?.[obj.slotNo] : undefined;
+      const agent = obj.casterAgentId ? agentById.get(obj.casterAgentId) : bound?.agentId ? agentById.get(bound.agentId) : undefined;
       const text = agent ? agent.nameKo.slice(0, 2) : obj.slotNo ? String(obj.slotNo) : team === "enemy" ? "E" : "?";
+      const nameTag = bound ? (
+        <text x={cx} y={labelY} textAnchor="middle" fontSize={fontSize} fontWeight={700} fill="#ece8e1" stroke="#0a1017" strokeWidth={3 / scale} paintOrder="stroke" fontFamily="Pretendard, sans-serif" data-lineup-name>
+          {bound.nickname}
+        </text>
+      ) : null;
+      const labelNode = bound && obj.label ? (
+        <text x={cx} y={labelY + 13 / scale} textAnchor="middle" fontSize={11 / scale} fill="#9da6ae" stroke="#0a1017" strokeWidth={3 / scale} paintOrder="stroke" fontFamily="Pretendard, sans-serif">
+          {obj.label}
+        </text>
+      ) : label;
       const r = 14 / scale;
       const clipId = `clip-${obj.id}`;
       return (
@@ -93,7 +109,8 @@ export function ObjectShape({
               #{obj.slotNo}
             </text>
           ) : null}
-          {label}
+          {nameTag}
+          {labelNode}
         </g>
       );
     }

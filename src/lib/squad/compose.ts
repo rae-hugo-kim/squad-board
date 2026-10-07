@@ -107,6 +107,13 @@ export type TacticFit = {
   total: number;
   points: number;
   unfilled: Array<{ slotNo: number; description: string }>;
+  /**
+   * 이 팀의 요원 폭(선호 1~3순위·선호 역할군)으로 설정된 슬롯을 전부 채울 수 있는지. 점수와 무관한 판정 —
+   * 우선도가 높아도 false면 "포기"해야 하는 조합이다 (tacticFeasibility 참고).
+   */
+  feasible: boolean;
+  /** 실행 불가 사유 (사람이 읽는 문장). feasible이면 빈 배열. */
+  infeasibleReasons: string[];
 };
 
 export type Composition = {
@@ -296,7 +303,7 @@ function fitTactic(
   const unfilled: TacticFit["unfilled"] = [];
   slots.forEach((slot, i) => {
     if (choice[i] >= 0) bindings[slot.slotNo] = team[choice[i]].id;
-    else unfilled.push({ slotNo: slot.slotNo, description: slot.description || slotLabel(slot) });
+    else unfilled.push({ slotNo: slot.slotNo, description: slot.description || slotLabel(slot, agentById) });
   });
   return {
     tacticId: tactic.id,
@@ -306,12 +313,93 @@ function fitTactic(
     total: slots.length,
     points: Math.max(0, points),
     unfilled,
+    // 탐색 중(searchTeam)에는 점수만 필요하므로 실행 가능성은 결과를 만들 때(withFeasibility) 한 번만 붙인다
+    feasible: true,
+    infeasibleReasons: [],
   };
 }
 
-function slotLabel(slot: ComposeSlot): string {
+/** 팀 확정 뒤 전술마다 실행 가능성을 한 번 계산해 붙인다 (배정과 무관한 판정이라 탐색 밖에서 한다). */
+function withFeasibility(fits: TacticFit[], tactics: ComposeTactic[], team: ComposeMember[], agentById: Map<string, ComposeAgent>): TacticFit[] {
+  const agents = [...agentById.values()];
+  return fits.map((f) => {
+    const t = tactics.find((x) => x.id === f.tacticId);
+    const fz = t ? tacticFeasibility(t, team, agents) : { feasible: true, reasons: [] };
+    return { ...f, feasible: fz.feasible, infeasibleReasons: fz.reasons };
+  });
+}
+
+/** 멤버가 낼 수 있는 요원 id 집합 — optionsFor와 같은 기준(맵 선호 1~3순위, 없으면 선호 역할군 1순위 요원 후보). */
+function candidateAgentIds(member: ComposeMember, agentById: Map<string, ComposeAgent>, allAgents: ComposeAgent[]): string[] {
+  return optionsFor(member, agentById, allAgents)
+    .map((o) => o.agentId)
+    .filter((id): id is string => Boolean(id));
+}
+
+function agentFitsSlot(slot: ComposeSlot, agent: ComposeAgent): boolean {
+  return slot.agentId ? slot.agentId === agent.id : slot.roleGroup ? agent.roleGroup === slot.roleGroup : true;
+}
+
+export type Feasibility = { feasible: boolean; reasons: string[] };
+
+/**
+ * 전술 실행 가능성 — 점수와 별개의 하드 판정.
+ *
+ * 질문: 이 멤버들의 요원 폭으로 설정된 슬롯을 전부, 요원 겹침 없이 채울 수 있는가?
+ * 편성 점수(DP)는 선호 점수와 슬롯 점수를 합산해 최적화하므로 "채울 수는 있지만 점수가 낮은" 배정을 지나칠 수 있다.
+ * 그래서 여기서는 (슬롯 → 멤버 → 요원) 깊이 우선 탐색으로 "존재하는지"만 본다. 슬롯·멤버 ≤ 5(후보는 참가자 전체 ≤ 10),
+ * 멤버당 요원 ≤ 4라 탐색량은 작다.
+ *
+ * 사유는 두 단계로 적는다: (1) 후보가 한 명도 없는 슬롯 — 가장 유용한 설명, (2) 후보는 있지만 겹쳐서 동시에 못 채움.
+ */
+export function tacticFeasibility(tactic: ComposeTactic, members: ComposeMember[], agents: ComposeAgent[]): Feasibility {
+  const agentById = new Map(agents.map((a) => [a.id, a]));
+  const slots = tactic.slots.filter(isConfiguredSlot).sort((a, b) => a.slotNo - b.slotNo);
+  if (slots.length === 0) return { feasible: true, reasons: [] };
+  const reasons: string[] = [];
+
+  // 같은 특정 요원을 두 슬롯이 요구하면 요원 중복 금지 규칙상 불가
+  const wanted = slots.map((s) => s.agentId).filter((x): x is string => Boolean(x));
+  const dupAgent = wanted.find((id, i) => wanted.indexOf(id) !== i);
+  if (dupAgent) reasons.push(`슬롯 두 개가 같은 요원(${agentById.get(dupAgent)?.nameKo ?? dupAgent})을 요구함`);
+
+  // 슬롯별 후보 (멤버, 요원) 쌍
+  const candidates = slots.map((slot) =>
+    members.flatMap((m) =>
+      slot.fixedMemberId && slot.fixedMemberId !== m.id
+        ? []
+        : candidateAgentIds(m, agentById, agents)
+            .map((id) => agentById.get(id))
+            .filter((a): a is ComposeAgent => Boolean(a) && agentFitsSlot(slot, a!))
+            .map((a) => ({ memberId: m.id, agentId: a.id })),
+    ),
+  );
+  slots.forEach((slot, i) => {
+    if (candidates[i].length === 0) reasons.push(`슬롯 ${slot.slotNo}(${slot.description || slotLabel(slot, agentById)}): 맡을 수 있는 멤버 없음`);
+  });
+  if (reasons.length) return { feasible: false, reasons };
+
+  const usedMembers = new Set<string>();
+  const usedAgents = new Set<string>();
+  const dfs = (i: number): boolean => {
+    if (i === slots.length) return true;
+    for (const c of candidates[i]) {
+      if (usedMembers.has(c.memberId) || usedAgents.has(c.agentId)) continue;
+      usedMembers.add(c.memberId);
+      usedAgents.add(c.agentId);
+      if (dfs(i + 1)) return true;
+      usedMembers.delete(c.memberId);
+      usedAgents.delete(c.agentId);
+    }
+    return false;
+  };
+  if (dfs(0)) return { feasible: true, reasons: [] };
+  return { feasible: false, reasons: [`슬롯 ${slots.length}개를 동시에 채울 멤버·요원 조합이 없음 (후보가 겹침)`] };
+}
+
+function slotLabel(slot: ComposeSlot, agentById?: Map<string, ComposeAgent>): string {
   if (slot.roleGroup) return ROLE_LABELS[slot.roleGroup].ko;
-  if (slot.agentId) return `요원 ${slot.agentId}`;
+  if (slot.agentId) return agentById?.get(slot.agentId)?.nameKo ?? `요원 ${slot.agentId}`;
   return "아무나";
 }
 
@@ -407,7 +495,9 @@ function describe(d: DescribeInput): { reasons: string[]; warnings: string[] } {
   for (const f of d.tacticFits) {
     if (f.filled === f.total && f.total > 0) reasons.push(`전술 ${f.name}: 슬롯 ${f.filled}/${f.total} 충족 — 그대로 실행 가능`);
     else if (f.total > 0) reasons.push(`전술 ${f.name}: 슬롯 ${f.filled}/${f.total} 충족`);
+    // 빈 슬롯은 "무엇이 비었는지", 실행 불가는 "왜 채울 수 없는지" — 둘 다 적어야 포기 판단이 선다
     for (const u of f.unfilled) warnings.push(`전술 ${f.name}: 슬롯 ${u.slotNo}(${u.description}) 비어 있음 — 수정 필요`);
+    if (!f.feasible) warnings.push(`전술 ${f.name}: 참가자 요원 폭으로 실행 불가 — 포기 권고 (${f.infeasibleReasons.join("; ")})`);
   }
 
   for (const g of ROLE_GROUPS) {
@@ -444,7 +534,12 @@ function buildComposition(
   const emptySlots = Math.max(0, rules.teamSize - team.length);
   const agentIds = slots.map((s) => s.agentId);
   const roleCount = countRoles(agentIds, agentById);
-  const tacticFits = tactics.map((t) => fitTactic(t, team, agentIds, agentById));
+  const tacticFits = withFeasibility(
+    tactics.map((t) => fitTactic(t, team, agentIds, agentById)),
+    tactics,
+    team,
+    agentById,
+  );
   const score = slots.reduce((sum, s) => sum + s.points, 0) + tacticPoints(tacticFits);
   const { reasons, warnings } = describe({ slots, roleCount, rules, members: allMembers, agentById, bench, emptySlots, duplicates: [], tacticFits });
   return { slots, bench, emptySlots, score, roleCount, meetsRules, tacticFits, reasons, warnings };
@@ -526,7 +621,12 @@ export function evaluateAssignment(input: {
   const roleCount = countRoles(ids, agentById);
   const emptySlots = Math.max(0, rules.teamSize - members.length);
   const meetsRules = duplicates.length === 0 && rulesSatisfied(roleCount, rules);
-  const tacticFits = tactics.map((t) => fitTactic(t, members, agentIds, agentById));
+  const tacticFits = withFeasibility(
+    tactics.map((t) => fitTactic(t, members, agentIds, agentById)),
+    tactics,
+    members,
+    agentById,
+  );
   const score = picked.reduce((sum, p) => sum + p.points, 0) + tacticPoints(tacticFits);
   const { reasons, warnings } = describe({ slots, roleCount, rules, members, agentById, bench: [], emptySlots, duplicates, tacticFits });
   return { slots, bench: [], emptySlots, score, roleCount, meetsRules, tacticFits, reasons, warnings };

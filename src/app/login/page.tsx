@@ -20,7 +20,7 @@ type Props = { searchParams: Promise<{ next?: string }> };
  */
 export default async function LoginPage({ searchParams }: Props) {
   const current = await getCurrentMember();
-  if (current) redirect("/prefs");
+  if (current) redirect("/");
 
   const { next } = await searchParams;
   const list = await db

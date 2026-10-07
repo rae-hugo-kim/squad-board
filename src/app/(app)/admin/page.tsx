@@ -3,6 +3,7 @@ import { asc, desc } from "drizzle-orm";
 import { db } from "@/db";
 import { maps, members } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
+import { MEMBER_ROLE_LABELS, MEMBER_ROLE_ORDER } from "@/lib/members/roles";
 import { setMemberRoleAction, toggleMapPoolAction, toggleMemberActiveAction } from "@/server/actions/admin";
 import { AddMemberForm } from "./add-member-form";
 
@@ -69,13 +70,19 @@ export default async function AdminPage() {
                         <input type="hidden" name="memberId" value={m.id} />
                         <select
                           name="role"
+                          // React 19는 액션 완료 후 폼을 리셋해 select가 이전 defaultValue로 돌아간다. 역할이 바뀌면
+                          // key로 리마운트해 새 값이 바로 보이게 한다 (새로고침 전까지 옛 역할이 보이던 문제).
+                          key={m.role}
                           defaultValue={m.role}
                           className="input w-28 py-1"
                           aria-label={`${m.nickname} 역할`}
                           disabled={!m.isActive}
                         >
-                          <option value="member">일반</option>
-                          <option value="admin">관리자</option>
+                          {MEMBER_ROLE_ORDER.map((r) => (
+                            <option key={r} value={r}>
+                              {MEMBER_ROLE_LABELS[r].ko}
+                            </option>
+                          ))}
                         </select>
                         <button type="submit" className="btn-secondary min-h-9 px-3 text-xs" disabled={!m.isActive}>
                           적용
@@ -112,7 +119,8 @@ export default async function AdminPage() {
           </table>
         </div>
         <p className="mt-2 text-xs text-muted">
-          비활성 멤버는 입장 목록에서 사라지고 선호 매트릭스에서 빠지지만, 데이터는 남아 있어 다시 활성화하면 복구됩니다.
+          비활성 멤버는 입장 목록에서 사라지고 선호 매트릭스에서 빠지지만, 데이터는 남아 있어 다시 활성화하면 복구됩니다. 전술가는 맵별 공통 전술을
+          만들고 우선도를 정할 수 있습니다(관리자 기능은 없음).
         </p>
       </section>
 

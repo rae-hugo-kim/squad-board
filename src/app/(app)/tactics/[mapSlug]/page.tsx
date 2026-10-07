@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { RoundType, TacticSide } from "@/db/schema";
 import { requireMember } from "@/lib/auth";
 import { layerColor, ROUND_TYPE_LABELS, ROUND_TYPE_ORDER, TACTIC_SIDE_LABELS, TACTIC_SIDE_ORDER } from "@/lib/tactics/types";
+import { canEditTactic, canManageSharedTactics } from "@/lib/tactics/permissions";
 import { EXTERNAL_TOOLS } from "@/lib/tools/external-links";
 import { deleteTacticAction, duplicateTacticAction } from "@/server/actions/tactics";
 import { getMapBySlug, listMaps } from "@/server/queries/prefs";
@@ -13,6 +14,9 @@ import { NewTacticForm } from "./new-tactic-form";
 export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ mapSlug: string }>; searchParams: Promise<{ side?: string; round?: string; tag?: string }> };
+
+/** 우선도 정렬 키: 1이 맨 앞, 0(미지정)은 맨 뒤 */
+const priorityRank = (p: number) => (p > 0 ? p : Number.MAX_SAFE_INTEGER);
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { mapSlug } = await params;
@@ -35,7 +39,10 @@ export default async function TacticListPage({ params, searchParams }: Props) {
   const side = TACTIC_SIDE_ORDER.includes(sp.side as TacticSide) ? (sp.side as TacticSide) : null;
   const round = ROUND_TYPE_ORDER.includes(sp.round as RoundType) ? (sp.round as RoundType) : null;
   const tag = sp.tag?.trim() || null;
-  const filtered = items.filter((i) => (!side || i.tactic.side === side) && (!round || i.tactic.roundType === round) && (!tag || i.tactic.tags.includes(tag)));
+  const filtered = items
+    .filter((i) => (!side || i.tactic.side === side) && (!round || i.tactic.roundType === round) && (!tag || i.tactic.tags.includes(tag)))
+    // 공통 전술(우선도 순)을 위로, 그다음 개인 전술(최근 수정 순)
+    .sort((a, b) => Number(b.tactic.isShared) - Number(a.tactic.isShared) || (a.tactic.isShared ? priorityRank(a.tactic.priority) - priorityRank(b.tactic.priority) : 0));
   const allTags = [...new Set(items.flatMap((i) => i.tactic.tags))].sort();
   const filterHref = (patch: Partial<{ side: string | null; round: string | null; tag: string | null }>) => {
     const q = new URLSearchParams();
@@ -128,7 +135,7 @@ export default async function TacticListPage({ params, searchParams }: Props) {
                 </thead>
                 <tbody>
                   {filtered.map(({ tactic, author, stageCount, objectCount, slotsFilled }) => {
-                    const canEdit = tactic.authorId === me.id || me.role === "admin";
+                    const canEdit = canEditTactic(tactic, me);
                     return (
                       <tr key={tactic.id} className="border-t border-line">
                         <td className="px-3 py-2.5">
@@ -139,6 +146,11 @@ export default async function TacticListPage({ params, searchParams }: Props) {
                             <span className="inline-block h-3 w-3 rounded-sm" style={{ background: layerColor(tactic.layerHue) }} aria-hidden />
                             {tactic.name}
                           </Link>
+                          {tactic.isShared ? (
+                            <span className="ml-2 badge bg-info/15 text-info" title="전술가 공통 전술 — 오늘의 스쿼드 후보">
+                              공통{tactic.priority > 0 ? ` · 우선 ${tactic.priority}` : ""}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5 text-xs">
                           <span className={tactic.side === "attack" ? "text-side-attack" : "text-side-defense"}>{TACTIC_SIDE_LABELS[tactic.side]}</span>
@@ -181,7 +193,7 @@ export default async function TacticListPage({ params, searchParams }: Props) {
       </section>
 
       <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
-        <NewTacticForm mapId={map.id} />
+        <NewTacticForm mapId={map.id} canManageShared={canManageSharedTactics(me)} />
         <div className="card p-4 text-sm">
           <div className="mb-2 font-bold">외부 라인업 사이트</div>
           <ul className="flex flex-col gap-1.5 text-xs">

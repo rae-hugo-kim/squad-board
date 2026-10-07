@@ -38,6 +38,14 @@ export const SEED_MAPS: SeedMap[] = [
   { slug: "corrode", nameKo: "코로드", nameEn: "Corrode", sites: ["A", "B"], inPool: true },
 ];
 
+/**
+ * 전술가 티어로 둘 닉네임. 시드가 돌 때마다(배포 빌드 포함) 이 닉네임의 멤버가
+ * - 없으면 전술가로 새로 만들고,
+ * - 일반(member)이면 전술가로 올린다. 관리자는 건드리지 않고, 관리 화면에서 내린 뒤에도 다음 배포에서 다시 올라오니
+ *   영구히 내리려면 이 목록에서도 빼야 한다.
+ */
+export const SEED_TACTICIAN_NICKNAMES = ["알파카", "벵거", "오르페브르"] as const;
+
 export type SeedAgent = {
   slug: string;
   nameKo: string;

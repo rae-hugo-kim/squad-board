@@ -117,6 +117,7 @@ export default async function SquadPage({ searchParams }: Props) {
                   <label key={t.id} className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-line bg-raised px-2.5 text-xs has-[:checked]:border-accent has-[:checked]:bg-accent-subtle">
                     <input type="checkbox" name="t" value={t.id} defaultChecked={selectedTacticIds.includes(t.id)} className="accent-[var(--accent)]" />
                     <span className="truncate">{t.name}</span>
+                    {t.isShared ? <span className="whitespace-nowrap text-info">공통{t.priority > 0 ? ` ${t.priority}` : ""}</span> : null}
                     <span className="ml-auto whitespace-nowrap text-muted">
                       {TACTIC_SIDE_LABELS[t.side]} · {ROUND_TYPE_LABELS[t.roundType]}
                     </span>

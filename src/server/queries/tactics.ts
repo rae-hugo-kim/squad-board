@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agents,
@@ -111,15 +111,44 @@ export async function getTacticsForOverlay(ids: string[]): Promise<TacticDetail[
   return details.filter((d): d is TacticDetail => Boolean(d));
 }
 
-export type TacticLite = Pick<Tactic, "id" | "name" | "side" | "roundType" | "layerHue">;
+export type TacticLite = Pick<Tactic, "id" | "name" | "side" | "roundType" | "layerHue" | "isShared" | "priority" | "updatedAt">;
 
-/** 선택 상자용 가벼운 목록 (편성기·경기 편집기) */
+const liteColumns = {
+  id: tactics.id,
+  name: tactics.name,
+  side: tactics.side,
+  roundType: tactics.roundType,
+  layerHue: tactics.layerHue,
+  isShared: tactics.isShared,
+  priority: tactics.priority,
+  updatedAt: tactics.updatedAt,
+};
+
+/** 선택 상자용 가벼운 목록 (편성기·경기 편집기). 공통 전술이 먼저 온다. */
 export async function listTacticsLite(mapId: string): Promise<TacticLite[]> {
-  return db
-    .select({ id: tactics.id, name: tactics.name, side: tactics.side, roundType: tactics.roundType, layerHue: tactics.layerHue })
-    .from(tactics)
-    .where(eq(tactics.mapId, mapId))
-    .orderBy(asc(tactics.side), asc(tactics.name));
+  return db.select(liteColumns).from(tactics).where(eq(tactics.mapId, mapId)).orderBy(desc(tactics.isShared), asc(tactics.side), asc(tactics.name));
+}
+
+/**
+ * 우선도 순으로 정렬한 공통 전술 ("오늘의 스쿼드" 후보). priority 1이 맨 앞, 0(미지정)은 맨 뒤, 같으면 최근 수정 순.
+ * 정렬은 메모리에서 한다 — "0은 가장 뒤" 규칙을 SQL 한 줄로 쓰기보다 읽기 쉽다.
+ */
+export function sortByPriority<T extends Pick<TacticLite, "priority" | "updatedAt">>(items: T[]): T[] {
+  const rank = (p: number) => (p > 0 ? p : Number.MAX_SAFE_INTEGER);
+  return [...items].sort((a, b) => rank(a.priority) - rank(b.priority) || b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function listSharedTacticsLite(mapId: string): Promise<TacticLite[]> {
+  const rows = await db.select(liteColumns).from(tactics).where(and(eq(tactics.mapId, mapId), eq(tactics.isShared, true)));
+  return sortByPriority(rows);
+}
+
+/** 맵별 공통 전술 수 (랜딩의 맵 선택 상자에 "공통 전술 N개"로 표시) */
+export async function countSharedTacticsByMap(): Promise<Map<string, number>> {
+  const rows = await db.select({ mapId: tactics.mapId }).from(tactics).where(eq(tactics.isShared, true));
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.mapId, (out.get(r.mapId) ?? 0) + 1);
+  return out;
 }
 
 /** 편성기 입력용 — 전술 슬롯을 순수 함수가 받는 형태로 */
@@ -159,9 +188,7 @@ export async function getTacticStats(): Promise<TacticRecord[]> {
   const [links, matchRows, tacticRows] = await Promise.all([
     db.select().from(sessionMatchTactics),
     db.select({ id: sessionMatches.id, result: sessionMatches.result }).from(sessionMatches),
-    db
-      .select({ id: tactics.id, name: tactics.name, side: tactics.side, roundType: tactics.roundType, layerHue: tactics.layerHue, mapId: tactics.mapId })
-      .from(tactics),
+    db.select({ ...liteColumns, mapId: tactics.mapId }).from(tactics),
   ]);
   const resultByMatch = new Map(matchRows.map((m) => [m.id, m.result]));
   const acc = new Map<string, TacticRecord>();

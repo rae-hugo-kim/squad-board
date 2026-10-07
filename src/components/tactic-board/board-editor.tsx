@@ -23,8 +23,10 @@ import { addStageAction, deleteStageAction, deleteTacticAction, duplicateTacticA
 import { BoardSvg } from "./board-svg";
 import { exportBoardPng } from "./export-png";
 import { PropertiesPanel, type AgentWithAbilities } from "./properties-panel";
+import { LineupPanel, type LineupData } from "./lineup-panel";
 import { SlotsEditor, type SlotDraft } from "./slots-editor";
 import { TacticMetaForm } from "./tactic-meta-form";
+import { slotMembersOf } from "@/lib/squad/lineup";
 
 export type EditorStage = { id: string; seq: number; name: string; memo: string; objects: BoardObject[] };
 
@@ -36,6 +38,8 @@ type Props = {
     roundType: RoundType;
     tags: string[];
     layerHue: number;
+    isShared: boolean;
+    priority: number;
     mapSlug: string;
     mapNameKo: string;
     mapNameEn: string;
@@ -48,6 +52,10 @@ type Props = {
   agents: AgentWithAbilities[];
   members: Array<{ id: string; nickname: string }>;
   canEdit: boolean;
+  /** 전술가·관리자 — 공통 전술 여부·우선도를 바꿀 수 있다 */
+  canManageShared: boolean;
+  /** 오늘의 라인업(?m=) — 있으면 패널을 보여주고 슬롯 토큰에 멤버 이름·요원을 얹는다 */
+  lineup?: LineupData | null;
 };
 
 type Tool = "select" | TacticObjectKind;
@@ -92,7 +100,7 @@ function newId(): string {
  * - 휠 = 커서 기준 확대, 스페이스+드래그(또는 가운데 버튼) = 이동.
  * 읽기 전용(작성자·관리자 아님)이면 추가·이동·삭제가 막히고 보기·확대·내보내기만 된다.
  */
-export function BoardEditor({ tactic, author, stages: initialStages, slots, agents, members, canEdit }: Props) {
+export function BoardEditor({ tactic, author, stages: initialStages, slots, agents, members, canEdit, canManageShared, lineup }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [stages, setStages] = useState<EditorStage[]>(initialStages);
   const [stageId, setStageId] = useState<string>(initialStages[0]?.id ?? "");
@@ -121,6 +129,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
   );
   const paletteAgent = agentTool.agentId ? agents.find((a) => a.id === agentTool.agentId) : undefined;
   const readOnly = !canEdit;
+  const slotMembers = useMemo(() => (lineup ? slotMembersOf(lineup.composition, tactic.id) : undefined), [lineup, tactic.id]);
 
   // ----- 객체 변경 (항상 새 배열을 만든다 — 불변 업데이트) -----
   const updateObjects = useCallback(
@@ -354,6 +363,11 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
         </h1>
         <span className={`badge ${tactic.side === "attack" ? "bg-side-attack/15 text-side-attack" : "bg-side-defense/15 text-side-defense"}`}>{TACTIC_SIDE_LABELS[tactic.side]}</span>
         <span className="badge border border-line text-secondary">{ROUND_TYPE_LABELS[tactic.roundType]}</span>
+        {tactic.isShared ? (
+          <span className="badge bg-info/15 text-info" title="전술가 공통 전술 — 오늘의 스쿼드 후보">
+            공통{tactic.priority > 0 ? ` · 우선 ${tactic.priority}` : ""}
+          </span>
+        ) : null}
         {tactic.tags.map((t) => (
           <span key={t} className="text-xs text-muted">
             #{t}
@@ -362,6 +376,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
         <span className="text-xs text-secondary">작성 {author?.nickname ?? "(알 수 없음)"}</span>
         <div className="ml-auto flex items-center gap-2 text-xs">
           {readOnly ? <span className="badge border border-line text-muted">읽기 전용 — 복제해서 내 버전으로 고칠 수 있습니다</span> : null}
+          {!readOnly && tactic.isShared ? <span className="text-muted">공통 전술 — 전술가 모두가 함께 고칩니다</span> : null}
           {!readOnly ? (
             <span className={saveState.status === "error" ? "text-accent-hover" : dirty.size ? "text-warning" : "text-secondary"} data-save-state={saveState.status}>
               {saveState.status === "saving" ? "저장 중…" : saveState.status === "error" ? `저장 실패: ${saveState.message}` : dirty.size ? "변경됨 (자동 저장 대기)" : saveState.at ? `저장됨 ${new Date(saveState.at).toLocaleTimeString("ko-KR")}` : "변경 없음"}
@@ -399,6 +414,8 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
           ) : null}
         </div>
       </div>
+
+      {lineup ? <LineupPanel lineup={lineup} slots={slots} tacticName={tactic.name} /> : null}
 
       {/* 단계 탭 */}
       <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="단계">
@@ -581,6 +598,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
             showCallouts={showCallouts}
             layers={[{ id: tactic.id, objects, hue: null, opacity: 1 }]}
             agentById={agentById}
+            slotMembers={slotMembers}
             view={view}
             selectedId={selectedId}
             draftPoints={draft}
@@ -644,7 +662,11 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
               {!readOnly ? (
                 <div className="border-t border-line pt-4">
                   <div className="mb-2 text-sm font-bold">전술 정보</div>
-                  <TacticMetaForm tacticId={tactic.id} initial={{ name: tactic.name, side: tactic.side, roundType: tactic.roundType, tags: tactic.tags }} />
+                  <TacticMetaForm
+                    tacticId={tactic.id}
+                    initial={{ name: tactic.name, side: tactic.side, roundType: tactic.roundType, tags: tactic.tags, isShared: tactic.isShared, priority: tactic.priority }}
+                    canManageShared={canManageShared}
+                  />
                 </div>
               ) : null}
               <p className="text-xs text-muted">객체를 클릭하면 여기에 속성이 표시됩니다. 범례: {OBJECT_KIND_ORDER.length}종 객체 — 팔레트 참고.</p>

@@ -27,7 +27,7 @@ async function login(nickname) {
   await page.fill("#passcode", passFor(nickname));
   await page.click(`label:has-text('${nickname}')`);
   await page.click("button[type=submit]");
-  await page.waitForURL(`${BASE}/prefs/**`);
+  await page.waitForURL(`${BASE}/`);
 }
 
 await login("Rae");

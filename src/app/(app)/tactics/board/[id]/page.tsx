@@ -1,13 +1,52 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { requireMember } from "@/lib/auth";
+import { composeSquads, tacticFeasibility } from "@/lib/squad/compose";
+import { lineupQuery, parseLineupParam } from "@/lib/squad/lineup";
+import { canEditTactic, canManageSharedTactics } from "@/lib/tactics/permissions";
 import { listActiveMembers } from "@/server/queries/prefs";
-import { getTacticDetail, listAgentsWithAbilities } from "@/server/queries/tactics";
+import { loadComposeInput } from "@/server/queries/squad";
+import { getTacticDetail, listAgentsWithAbilities, listSharedTacticsLite, loadComposeTactics, type TacticDetail } from "@/server/queries/tactics";
 import { BoardEditor } from "@/components/tactic-board/board-editor";
+import type { LineupData } from "@/components/tactic-board/lineup-panel";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ m?: string | string[] }> };
+
+/**
+ * ?m=<멤버 id,...> 가 있으면 "오늘의 라인업"을 계산한다 — 이 전술의 슬롯에 참가자를 배치한 상위 조합과,
+ * 같은 맵의 다른 공통 전술 각각의 실행 가능 여부. 전술 데이터는 바꾸지 않는다(조회 시점 뷰).
+ */
+async function buildLineup(detail: TacticDetail, memberIds: string[], activeMembers: Array<{ id: string; nickname: string; color: string }>): Promise<LineupData | null> {
+  const ids = memberIds.filter((id) => activeMembers.some((m) => m.id === id));
+  if (ids.length === 0) return null;
+  const [input, shared] = await Promise.all([loadComposeInput(detail.map.id, ids), listSharedTacticsLite(detail.map.id)]);
+  const tacticIds = [...new Set([detail.tactic.id, ...shared.map((t) => t.id)])];
+  const composeTactics = await loadComposeTactics(tacticIds);
+  const mine = composeTactics.find((t) => t.id === detail.tactic.id);
+  if (!mine) return null;
+  const { compositions } = composeSquads({ members: input.members, agents: input.agents, tactics: [mine], limit: 1 });
+  const composition = compositions[0];
+  if (!composition) return null;
+  const q = lineupQuery(ids);
+  const alternatives = shared
+    .filter((t) => t.id !== detail.tactic.id)
+    .map((t) => {
+      const ct = composeTactics.find((c) => c.id === t.id);
+      // 참가자 전체를 후보로 한 빠른 판정 — 상위 조합 기준 판정은 그 보드로 들어가면 다시 계산한다
+      const fz = ct ? tacticFeasibility(ct, input.members, input.agents) : { feasible: true, reasons: [] };
+      return { id: t.id, name: t.name, priority: t.priority, feasible: fz.feasible, reasons: fz.reasons, href: `/tactics/board/${t.id}?${q}` };
+    });
+  const squadHref = `/squad?${new URLSearchParams([["map", detail.map.slug], ...ids.map((id) => ["m", id] as [string, string]), ["t", detail.tactic.id]])}`;
+  return {
+    members: activeMembers.filter((m) => ids.includes(m.id)).map((m) => ({ id: m.id, nickname: m.nickname, color: m.color })),
+    agents: input.agents,
+    composition,
+    alternatives,
+    squadHref,
+  };
+}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -16,13 +55,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 /** 전술 보드 편집기 페이지. 서버가 상세를 읽어 클라이언트 편집기에 넘긴다. 작성자·관리자만 편집. */
-export default async function TacticBoardPage({ params }: Props) {
+export default async function TacticBoardPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const sp = await searchParams;
   const me = await requireMember();
   const detail = await getTacticDetail(id);
   if (!detail) notFound();
   const [agentList, memberList] = await Promise.all([listAgentsWithAbilities(), listActiveMembers()]);
-  const canEdit = detail.tactic.authorId === me.id || me.role === "admin";
+  const canEdit = canEditTactic(detail.tactic, me);
+  const lineupIds = parseLineupParam(sp.m);
+  const lineup = lineupIds.length ? await buildLineup(detail, lineupIds, memberList) : null;
 
   return (
     <BoardEditor
@@ -36,6 +78,8 @@ export default async function TacticBoardPage({ params }: Props) {
         roundType: detail.tactic.roundType,
         tags: detail.tactic.tags,
         layerHue: detail.tactic.layerHue,
+        isShared: detail.tactic.isShared,
+        priority: detail.tactic.priority,
         mapSlug: detail.map.slug,
         mapNameKo: detail.map.nameKo,
         mapNameEn: detail.map.nameEn,
@@ -80,6 +124,8 @@ export default async function TacticBoardPage({ params }: Props) {
       agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup, abilities: a.abilities, iconUrl: a.iconUrl }))}
       members={memberList.map((m) => ({ id: m.id, nickname: m.nickname }))}
       canEdit={canEdit}
+      canManageShared={canManageSharedTactics(me)}
+      lineup={lineup}
     />
   );
 }

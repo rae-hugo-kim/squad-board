@@ -149,14 +149,24 @@ export function CompositionCard({
       {current.tacticFits.length ? (
         <div className="mt-4 flex flex-col gap-2">
           {current.tacticFits.map((f) => (
-            <div key={f.tacticId} className={`rounded-md border p-3 text-xs ${f.filled === f.total ? "border-success/40 bg-success/5" : "border-warning/40 bg-warning/5"}`}>
-              <div className="mb-1 flex items-center gap-2">
+            <div
+              key={f.tacticId}
+              className={`rounded-md border p-3 text-xs ${!f.feasible ? "border-danger/50 bg-danger/5" : f.filled === f.total ? "border-success/40 bg-success/5" : "border-warning/40 bg-warning/5"}`}
+              data-tactic-fit={f.feasible ? "feasible" : "infeasible"}
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className="font-bold">전술 {f.name}</span>
                 <span className="font-mono">
                   슬롯 {f.filled}/{f.total}
                 </span>
                 <span className="font-mono text-secondary">+{f.points}</span>
+                {!f.feasible ? (
+                  <span className="badge bg-danger/15 text-danger" title={f.infeasibleReasons.join("\n")}>
+                    실행 불가 — 포기 권고
+                  </span>
+                ) : null}
               </div>
+              {!f.feasible ? <p className="mb-1 text-danger">{f.infeasibleReasons.join(" · ")}</p> : null}
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(f.bindings).map(([slotNo, memberId]) => (
                   <span key={slotNo} className="rounded-sm border border-line bg-raised px-1.5 py-0.5">

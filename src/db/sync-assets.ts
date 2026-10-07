@@ -37,7 +37,15 @@ export async function syncMaps(): Promise<number> {
     const row = mapMap(m, koById.get(m.uuid));
     if (!row) continue;
     const existing = await db.select({ id: maps.id, sortOrder: maps.sortOrder }).from(maps).where(eq(maps.slug, row.slug)).get();
-    const patch = { nameKo: row.nameKo, nameEn: row.nameEn, imagePath: row.imagePath, splashUrl: row.splashUrl, listIconUrl: row.listIconUrl, callouts: row.callouts };
+    const patch = {
+      nameKo: row.nameKo,
+      nameEn: row.nameEn,
+      imagePath: row.imagePath,
+      splashUrl: row.splashUrl,
+      listIconUrl: row.listIconUrl,
+      callouts: row.callouts,
+      unitsPerBoard: row.unitsPerBoard,
+    };
     if (existing) await db.update(maps).set(patch).where(eq(maps.id, existing.id));
     else {
       const maxOrder = (await db.select({ sortOrder: maps.sortOrder }).from(maps)).reduce((mx, r) => Math.max(mx, r.sortOrder), -1);

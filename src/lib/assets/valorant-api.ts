@@ -115,7 +115,19 @@ export type MapRow = {
   splashUrl: string | null;
   listIconUrl: string | null;
   callouts: MapCallout[];
+  /** 미니맵 전체 폭 = 게임 세계 몇 유닛인지 (1m = 100유닛). xMultiplier 역수. 값이 없거나 0이면 null. */
+  unitsPerBoard: number | null;
 };
+
+/**
+ * 미니맵 폭이 게임 세계 몇 유닛인지. 공식 변환은 minimap = world × xMultiplier + scalar 이므로 폭 1(0~1) = 1/|xMultiplier| 유닛.
+ * 예: xMultiplier 0.00007 → 약 14,286유닛(≈143m). 스킬 범위를 실제 미터로 그릴 때 쓴다.
+ */
+export function unitsPerBoardOf(map: Pick<ApiMap, "xMultiplier">): number | null {
+  const m = Math.abs(map.xMultiplier);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  return Math.round(1 / m);
+}
 
 /** 맵 변환. 경쟁 맵(tacticalDescription 있음)이고 미니맵이 있을 때만. 사격장·연습장·TDM 맵은 null. */
 export function mapMap(en: ApiMap, ko: ApiMap | undefined): MapRow | null {
@@ -128,6 +140,7 @@ export function mapMap(en: ApiMap, ko: ApiMap | undefined): MapRow | null {
     imagePath: en.displayIcon,
     splashUrl: en.splash ?? null,
     listIconUrl: en.listViewIcon ?? null,
+    unitsPerBoard: unitsPerBoardOf(en),
     callouts: (en.callouts ?? []).map((c) => {
       const p = calloutToBoard(en, c.location);
       return { name: c.regionName, region: c.superRegionName, x: Math.round(p.x * 10000) / 10000, y: Math.round(p.y * 10000) / 10000 };

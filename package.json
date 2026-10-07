@@ -19,7 +19,8 @@
     "e2e:stage3": "node e2e/stage3.mjs",
     "e2e:stage4": "node e2e/stage4.mjs",
     "db:deploy": "node --import tsx src/db/deploy.ts",
-    "assets:sync": "node --env-file=.env.local --import tsx src/db/sync-assets.ts"
+    "assets:sync": "node --env-file=.env.local --import tsx src/db/sync-assets.ts",
+    "e2e:stage5": "node e2e/stage5.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",

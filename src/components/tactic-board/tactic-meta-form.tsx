@@ -5,20 +5,25 @@ import type { RoundType, TacticSide } from "@/db/schema";
 import { ROUND_TYPE_LABELS, ROUND_TYPE_ORDER, TACTIC_SIDE_LABELS, TACTIC_SIDE_ORDER } from "@/lib/tactics/types";
 import { updateTacticMetaAction } from "@/server/actions/tactics";
 import type { ActionResult } from "@/server/actions/auth";
+import { SharedTacticFields } from "./shared-tactic-fields";
 
-/** 전술 이름·진영·라운드 유형·태그 수정 (작성자·관리자). */
+/** 전술 이름·진영·라운드 유형·태그(+전술가는 공통 여부·우선도) 수정. */
 export function TacticMetaForm({
   tacticId,
   initial,
+  canManageShared,
 }: {
   tacticId: string;
-  initial: { name: string; side: TacticSide; roundType: RoundType; tags: string[] };
+  initial: { name: string; side: TacticSide; roundType: RoundType; tags: string[]; isShared: boolean; priority: number };
+  canManageShared: boolean;
 }) {
   const [result, formAction, pending] = useActionState<ActionResult | null, FormData>(updateTacticMetaAction, null);
   const [name, setName] = useState(initial.name);
   const [side, setSide] = useState<TacticSide>(initial.side);
   const [roundType, setRoundType] = useState<RoundType>(initial.roundType);
   const [tags, setTags] = useState(initial.tags.join(", "));
+  const [isShared, setIsShared] = useState(initial.isShared);
+  const [priority, setPriority] = useState(initial.priority > 0 ? String(initial.priority) : "");
   const fieldError = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
   return (
     <form action={formAction} className="flex flex-col gap-2 text-sm">
@@ -54,6 +59,7 @@ export function TacticMetaForm({
         <span className="label">태그 (쉼표로 구분)</span>
         <input name="tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="러시, 포스트플랜트" className="input py-1.5" />
       </label>
+      {canManageShared ? <SharedTacticFields compact isShared={isShared} onShared={setIsShared} priority={priority} onPriority={setPriority} error={fieldError("priority")} /> : null}
       <div className="flex items-center gap-2">
         <button type="submit" className="btn-secondary min-h-8 px-3 text-xs" disabled={pending}>
           {pending ? "저장 중…" : "정보 저장"}

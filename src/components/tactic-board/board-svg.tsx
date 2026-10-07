@@ -4,7 +4,7 @@ import { forwardRef, type PointerEvent as ReactPointerEvent, type WheelEvent as 
 import type { MapCallout, Point } from "@/db/schema";
 import { BOARD, type View } from "@/lib/tactics/geometry";
 import { OBJECT_META, type BoardObject } from "@/lib/tactics/types";
-import { LinkLine, ObjectShape, type AgentLite } from "./object-shapes";
+import { LinkLine, ObjectShape, type AgentLite, type SlotMemberLite } from "./object-shapes";
 
 export type BoardLayer = {
   id: string;
@@ -21,6 +21,8 @@ type Props = {
   showCallouts?: boolean;
   layers: BoardLayer[];
   agentById: Map<string, AgentLite>;
+  /** 오늘의 라인업: 슬롯 번호 → 멤버·요원. 슬롯 토큰에 이름과 요원 아이콘을 얹는다 */
+  slotMembers?: Record<number, SlotMemberLite>;
   view: View;
   selectedId?: string | null;
   /** 그리는 중인 경로 (편집기) */
@@ -42,7 +44,7 @@ type Props = {
  * viewBox는 1000×1000 고정이고 확대·이동은 안쪽 <g transform>으로 처리한다 (좌표 변환이 단순해진다).
  */
 export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
-  { mapImage, callouts, showCallouts, layers, agentById, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onWheel, onDoubleClick, cursor, className },
+  { mapImage, callouts, showCallouts, layers, agentById, slotMembers, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onWheel, onDoubleClick, cursor, className },
   ref,
 ) {
   return (
@@ -90,7 +92,7 @@ export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
             <g key={layer.id} opacity={layer.opacity} data-layer={layer.id}>
               {areas.map((o) => (
                 <g key={o.id} data-object={o.id} onPointerDown={onObjectPointerDown ? (e) => onObjectPointerDown(e, o) : undefined} style={{ cursor: onObjectPointerDown ? "move" : undefined }}>
-                  <ObjectShape obj={o} agentById={agentById} hue={layer.hue} selected={o.id === selectedId} scale={view.scale} />
+                  <ObjectShape obj={o} agentById={agentById} slotMembers={slotMembers} hue={layer.hue} selected={o.id === selectedId} scale={view.scale} />
                 </g>
               ))}
               {layer.objects
@@ -100,7 +102,7 @@ export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
                 ))}
               {rest.map((o) => (
                 <g key={o.id} data-object={o.id} onPointerDown={onObjectPointerDown ? (e) => onObjectPointerDown(e, o) : undefined} style={{ cursor: onObjectPointerDown ? "move" : undefined }}>
-                  <ObjectShape obj={o} agentById={agentById} hue={layer.hue} selected={o.id === selectedId} scale={view.scale} />
+                  <ObjectShape obj={o} agentById={agentById} slotMembers={slotMembers} hue={layer.hue} selected={o.id === selectedId} scale={view.scale} />
                 </g>
               ))}
             </g>
