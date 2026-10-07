@@ -8,6 +8,13 @@
       "when": 1791347824606,
       "tag": "0000_reflective_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791350994217,
+      "tag": "0001_narrow_nebula",
+      "breakpoints": true
     }
   ]
 }

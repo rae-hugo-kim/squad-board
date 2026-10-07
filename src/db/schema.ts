@@ -10,7 +10,7 @@ import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-or
  * - 날짜는 ISO 8601 문자열로 저장(SQLite에 날짜형이 없음). 정렬·비교가 문자열로 가능하다.
  * - 열거형(enum)은 text + TypeScript 유니온 타입으로 제한한다. SQLite는 enum이 없고,
  *   zod 검증(서버 액션)에서 값을 한 번 더 걸러낸다.
- * - 전술 보드(Tactic 등)는 3단계에서 추가. 지금은 참조 무결성을 위해 maps/agents만 둔다.
+ * - 전술 보드(Tactic 등)는 3단계에서 추가. 2단계에서 세션 기록(Session 3단) 테이블을 더했다.
  */
 
 /** 요원 역할군. 편성기 제약(전략가 1 이상 등)과 색상 토큰이 이 값을 참조한다. */
@@ -19,6 +19,10 @@ export type RoleGroup = (typeof ROLE_GROUPS)[number];
 
 export const MEMBER_ROLES = ["admin", "member"] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
+
+/** 경기 결과. 스코어와 별도로 두는 이유: 무승부(12:12)·몰수 등 스코어만으로 판정이 애매한 경우가 있다. */
+export const MATCH_RESULTS = ["win", "loss", "draw"] as const;
+export type MatchResult = (typeof MATCH_RESULTS)[number];
 
 const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`;
 
@@ -115,9 +119,103 @@ export const memberMapPreferences = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Session — 하루치 모임. "날짜 → 경기 → 멤버" 3단 기록의 최상위 (2단계, 기획서 6절)
+// ---------------------------------------------------------------------------
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    /** 모임 날짜. YYYY-MM-DD. 하루에 여러 경기가 들어가므로 세션은 날짜 단위다. */
+    date: text("date").notNull(),
+    memo: text("memo").notNull().default(""),
+    /** 세션을 만든 멤버. 삭제된 멤버는 없으므로(비활성화만) 항상 조회 가능하다. */
+    createdBy: text("created_by").references(() => members.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [index("sessions_date_idx").on(t.date)],
+);
+
+// ---------------------------------------------------------------------------
+// SessionParticipant — 그날 참가한 멤버 (벤치 포함). 경기별 출전은 session_match_players가 따로 든다.
+// ---------------------------------------------------------------------------
+export const sessionParticipants = sqliteTable(
+  "session_participants",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("sp_session_member_uq").on(t.sessionId, t.memberId), index("sp_member_idx").on(t.memberId)],
+);
+
+// ---------------------------------------------------------------------------
+// SessionMatch — 한 경기. 맵·결과·스코어는 수기 입력, 확정 후에는 관리자만 수정.
+// ---------------------------------------------------------------------------
+export const sessionMatches = sqliteTable(
+  "session_matches",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** 세션 안에서의 순서 (1부터). 삭제 시 번호를 당기지 않는다 — 기록은 "몇 번째 경기"로 회자되기 때문. */
+    seq: integer("seq").notNull(),
+    /** 맵 삭제는 없지만, 혹시 모를 마스터 정리에 기록이 같이 지워지면 안 되므로 restrict. */
+    mapId: text("map_id")
+      .notNull()
+      .references(() => maps.id, { onDelete: "restrict" }),
+    /** 결과. 편성기에서 미리 만든 경기는 아직 결과가 없으므로 null 허용 (통계는 결과 있는 경기만 센다). */
+    result: text("result").$type<MatchResult>(),
+    /** 아군:적군 라운드 수. 예: 13:9 → scoreAlly 13, scoreEnemy 9. 모르면 null. */
+    scoreAlly: integer("score_ally"),
+    scoreEnemy: integer("score_enemy"),
+    memo: text("memo").notNull().default(""),
+    /** 스냅샷 확정. true면 관리자만 수정·해제할 수 있다. */
+    isConfirmed: integer("is_confirmed", { mode: "boolean" }).notNull().default(false),
+    confirmedAt: text("confirmed_at"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [index("sm_session_idx").on(t.sessionId), index("sm_map_idx").on(t.mapId)],
+);
+
+// ---------------------------------------------------------------------------
+// SessionMatchPlayer — 경기 × 멤버 스냅샷. 요원·포지션은 편성 결과를 복사해 두고,
+// 이후 선호가 바뀌어도 과거 기록은 변하지 않는다 (기획서 6절 "스냅샷" 원칙).
+// ---------------------------------------------------------------------------
+export const sessionMatchPlayers = sqliteTable(
+  "session_match_players",
+  {
+    id: text("id").primaryKey(),
+    matchId: text("match_id")
+      .notNull()
+      .references(() => sessionMatches.id, { onDelete: "cascade" }),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    /** 사용 요원. 아직 안 정했으면 null. 요원 마스터가 비활성화되어도 기록은 남는다(set null은 삭제 시에만). */
+    agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    position: text("position").notNull().default(""),
+    /** 킬·데스·어시스트. 선택 입력이라 null 허용. */
+    kills: integer("kills"),
+    deaths: integer("deaths"),
+    assists: integer("assists"),
+    memo: text("memo").notNull().default(""),
+  },
+  (t) => [uniqueIndex("smp_match_member_uq").on(t.matchId, t.memberId), index("smp_member_idx").on(t.memberId)],
+);
+
 // 타입 내보내기 — 화면/액션에서 재사용
 export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
 export type GameMap = typeof maps.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type MemberMapPreference = typeof memberMapPreferences.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type SessionMatch = typeof sessionMatches.$inferSelect;
+export type SessionMatchPlayer = typeof sessionMatchPlayers.$inferSelect;
