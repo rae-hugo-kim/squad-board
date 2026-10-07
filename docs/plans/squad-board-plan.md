@@ -377,4 +377,5 @@ flowchart LR
 - [x] 4단계(F): 감도 찾기·크로스헤어·감도 비교표·외부 링크 (2026-10-07)
 - [ ] 맵 탑뷰 이미지를 자리표시자 SVG에서 실제 이미지로 교체 (`public/maps/<slug>.svg` 또는 `maps.image_path`)
 - [ ] 요원 Veto 스킬 명칭 입력 (`src/db/seed-data.ts`)
+- [ ] 맵 콜아웃 좌표 목록 입력 (`maps` 마스터, 3절) — 전술 보드 라벨 자동 완성용. 사용 후 필요성 판단
 - [ ] 배포 방식 결정 (미니PC Docker vs Vercel+Turso)
