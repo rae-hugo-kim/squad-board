@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Squad Board", template: "%s · Squad Board" },
+  title: { default: "호발동", template: "%s · 호발동" },
   description: "발로란트 소모임 전술 보드 · 멤버 선호 · 스쿼드 편성",
 };
 
