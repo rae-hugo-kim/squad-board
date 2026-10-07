@@ -25,3 +25,25 @@ artifacts/**
 !artifacts/**/
 !artifacts/README.md
 !artifacts/**/README.md
+
+# --- Next.js / Node (Squad Board 앱) ---
+/node_modules
+/.next/
+/out/
+/build
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.DS_Store
+*.pem
+.vercel
+
+# env files (.env.example 만 커밋)
+.env*
+!.env.example
+
+# SQLite 데이터
+/data/

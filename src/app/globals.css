@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* 폰트: npm 패키지에서 로드 (Google Fonts 네트워크 의존 없음) */
+@import "pretendard/dist/web/static/pretendard.css";
+@import "@fontsource/barlow-condensed/600.css";
+@import "@fontsource/barlow-condensed/700.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+/*
+ * 디자인 토큰 — 기획서 "디자인 토큰" 섹션의 값을 그대로 CSS 변수로 옮김.
+ * 다크 단일 테마이므로 라이트 분기 없음. 값은 여기서만 바꾸면 전체에 반영된다.
+ */
+:root {
+  /* 표면·글자 */
+  --bg-base: #0f1923;
+  --bg-surface: #1a2733;
+  --bg-raised: #22303d;
+  --bg-canvas: #0a1017;
+  --border: #2f3e4c;
+  --border-strong: #4a5a69;
+  --text-primary: #ece8e1;
+  --text-secondary: #9da6ae;
+  --text-muted: #5f6b76;
+  --accent: #ff4655;
+  --accent-hover: #ff6b77;
+  --accent-subtle: rgba(255, 70, 85, 0.14);
+
+  /* 상태 */
+  --success: #3ddc97;
+  --warning: #ffc857;
+  --danger: #ff4655;
+  --info: #5ac8fa;
+
+  /* 진영·역할군 */
+  --ally: #2ee6d6;
+  --enemy: #ff8a3d;
+  --side-attack: #ff4655;
+  --side-defense: #5ac8fa;
+  --role-duelist: #ff5c5c;
+  --role-initiator: #ffb454;
+  --role-controller: #7b8cff;
+  --role-sentinel: #4fd98a;
+
+  /* 레이어 색조 (겹쳐보기) */
+  --layer-1: #ff4655;
+  --layer-2: #2ee6d6;
+  --layer-3: #ffc857;
+  --layer-4: #7b8cff;
+  --layer-5: #4fd98a;
+  --layer-6: #ff8a3d;
+  --layer-7: #c77dff;
+  --layer-8: #ece8e1;
+
+  /* 타이포 */
+  --font-body: "Pretendard", system-ui, -apple-system, sans-serif;
+  --font-display: "Barlow Condensed", "Pretendard", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* 반경·그림자 */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 2px var(--accent-subtle);
+}
+
+/*
+ * Tailwind v4 테마 매핑 — 위 변수를 유틸리티 클래스로 쓸 수 있게 한다.
+ * 예: bg-surface, text-secondary, border-line, text-role-duelist, font-display
+ */
+@theme inline {
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-raised: var(--bg-raised);
+  --color-canvas: var(--bg-canvas);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-ally: var(--ally);
+  --color-enemy: var(--enemy);
+  --color-side-attack: var(--side-attack);
+  --color-side-defense: var(--side-defense);
+  --color-role-duelist: var(--role-duelist);
+  --color-role-initiator: var(--role-initiator);
+  --color-role-controller: var(--role-controller);
+  --color-role-sentinel: var(--role-sentinel);
+
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-glow: var(--shadow-glow);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 공통 폼 요소 — 모든 화면에서 같은 모양을 유지하기 위해 전역으로 정의 */
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-raised px-3 py-2 text-sm text-primary outline-none;
+    @apply placeholder:text-muted focus:border-accent focus:shadow-glow;
+  }
+  /* Tailwind v4에서는 @apply로 다른 커스텀 클래스를 참조할 수 없어 공통 부분을 선택자 묶음으로 둔다 */
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-sm px-4 text-sm font-medium transition-colors;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-accent font-bold text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply border border-line bg-transparent text-primary hover:bg-raised;
+  }
+  .btn-danger {
+    @apply border border-line bg-transparent text-accent-hover hover:bg-accent-subtle;
+  }
+  .card {
+    @apply rounded-md border border-line bg-surface;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold;
+  }
+  .label {
+    @apply mb-1.5 block text-xs text-secondary;
+  }
+}
