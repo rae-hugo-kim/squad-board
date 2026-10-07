@@ -39,6 +39,7 @@ export default async function OverlayPage({ params, searchParams }: Props) {
         <OverlayViewer
           mapImage={map.imagePath}
           mapNameEn={map.nameEn}
+          callouts={map.callouts}
           tactics={sameMap.map((d) => ({
             id: d.tactic.id,
             name: d.tactic.name,
@@ -47,7 +48,7 @@ export default async function OverlayPage({ params, searchParams }: Props) {
             layerHue: d.tactic.layerHue,
             stages: d.stages.map((s) => ({ id: s.id, seq: s.seq, name: s.name, objects: s.objects })),
           }))}
-          agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup }))}
+          agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup, iconUrl: a.iconUrl, abilities: a.abilities }))}
         />
       )}
     </div>

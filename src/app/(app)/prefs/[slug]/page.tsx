@@ -6,6 +6,7 @@ import { ROLE_LABELS } from "@/db/seed-data";
 import { ROLE_GROUPS, type RoleGroup } from "@/db/schema";
 import { getMapBySlug, getMyPreference, listActiveAgents, listMaps, listPreferencesForMap } from "@/server/queries/prefs";
 import { RoleDot } from "@/components/role-dot";
+import { AgentIcon } from "@/components/agent-icon";
 import { MyPreferenceForm } from "./my-preference-form";
 import { SensitivityForm } from "./sensitivity-form";
 import { RolePreferenceForm } from "./role-preference-form";
@@ -96,10 +97,10 @@ export default async function PrefsMapPage({ params }: Props) {
             <tbody>
               {rows.map(({ member, pref }) => {
                 const isMe = member.id === me.id;
-                const agentCell = (a: { nameKo: string; roleGroup: RoleGroup } | null) =>
+                const agentCell = (a: { nameKo: string; roleGroup: RoleGroup; iconUrl: string | null } | null) =>
                   a ? (
                     <span className="inline-flex items-center gap-1.5">
-                      <RoleDot role={a.roleGroup} />
+                      {a.iconUrl ? <AgentIcon agent={a} size={22} /> : <RoleDot role={a.roleGroup} />}
                       {a.nameKo}
                     </span>
                   ) : (

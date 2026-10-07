@@ -75,7 +75,7 @@ export default async function SessionDetailPage({ params }: Props) {
               <MatchEditor
                 key={m.id}
                 isAdmin={isAdmin}
-                agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup }))}
+                agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup, iconUrl: a.iconUrl }))}
                 tacticOptions={(tacticsByMap.get(m.mapId) ?? []).map((t) => ({ id: t.id, name: t.name, side: t.side }))}
                 match={{
                   id: m.id,

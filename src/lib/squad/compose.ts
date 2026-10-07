@@ -41,7 +41,7 @@ export const ROLE_FALLBACK_AGENTS = 3;
 export const SLOT_POINTS = 2;
 export const POSITION_POINTS = 1;
 
-export type ComposeAgent = { id: string; nameKo: string; roleGroup: RoleGroup };
+export type ComposeAgent = { id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null };
 
 export type ComposePreference = {
   /** 1~3순위 요원 id. 비어 있으면 null. */

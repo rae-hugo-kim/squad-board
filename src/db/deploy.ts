@@ -27,6 +27,13 @@ async function main() {
   log.info("migrations applied (build)");
   await runSeed();
   log.info("seed complete (build)");
+  // 공식 에셋(미니맵·아이콘)은 실패해도 배포를 막지 않는다 — 자리표시자로 동작하고 다음 빌드에서 다시 시도한다
+  try {
+    const { syncAssets } = await import("./sync-assets");
+    await syncAssets();
+  } catch (err) {
+    log.warn("official assets sync skipped (network or API error) — placeholders stay", errorMeta(err));
+  }
 }
 
 main().catch((err) => {

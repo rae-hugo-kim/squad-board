@@ -42,6 +42,8 @@ async function login(nickname) {
 }
 /** 보드 SVG 위의 (fx, fy) 비율 위치를 클릭 */
 async function boardPoint(fx, fy) {
+  // 팔레트 버튼 클릭이 페이지를 스크롤할 수 있으므로 보드를 화면에 맞춘 뒤 측정한다
+  await page.locator("svg[data-board]").scrollIntoViewIfNeeded();
   const box = await page.locator("svg[data-board]").boundingBox();
   const size = Math.min(box.width, box.height);
   const ox = box.x + (box.width - size) / 2;
@@ -88,10 +90,31 @@ await page.locator("aside select").nth(1).selectOption({ index: 1 }); // 첫 스
 await page.fill("aside input[placeholder='https://']", "https://easylineup.gg/");
 check((await page.locator("a:has-text('라인업 링크 열기')").count()) === 1, "외부 라인업 링크 표시");
 
-// 요원 토큰 (슬롯 1, 아군)
+// 요원 토큰 (슬롯 1, 아군) — 요원 미정 슬롯 토큰
 await page.click("[data-tool=agent]");
 await clickBoard(0.5, 0.6);
 check((await objectCount()) === 2, "요원 토큰 추가");
+// Valoplant식: 요원 격자에서 요원을 고르고 놓기 → 토큰에 시전 요원이 채워진다
+check((await page.locator("[data-agent]").count()) === 28, "요원 격자 28명");
+const brimId = await page.locator("[data-agent]", { has: page.locator("[title='브림스톤']") }).first().getAttribute("data-agent");
+await page.click(`[data-agent="${brimId}"]`);
+await clickBoard(0.3, 0.7);
+check((await objectCount()) === 3, "격자에서 고른 요원 토큰 추가");
+check((await page.locator("aside select").nth(2).inputValue()) === brimId, "토큰 속성에 요원(브림스톤)이 미리 채워짐");
+// 그 요원의 스킬 아이콘 → 스킬 핑 (E = 하늘 연막 → 연막 객체, 시전 요원·스킬 미리 채움)
+await page.click(`[data-ability="${brimId}:e"]`);
+await clickBoard(0.35, 0.35);
+check((await objectCount()) === 4, "스킬 아이콘으로 스킬 핑 추가");
+check((await page.locator("aside span.font-bold:has-text('연막')").count()) === 1, "E(하늘 연막) → 연막 객체");
+check((await page.locator("aside select").nth(0).inputValue()) === brimId && (await page.locator("aside select").nth(1).inputValue()) === "e", "스킬 핑에 시전 요원·스킬 키 미리 채움");
+// 뒤 검사들의 객체 수 기준을 맞추기 위해 방금 넣은 둘을 지운다
+await page.keyboard.press("Delete");
+await page.click("button:has-text('선택 / 이동')");
+const brimToken = page.locator("svg[data-board] [data-object]").nth(2);
+const bb = await brimToken.boundingBox();
+await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+await page.keyboard.press("Delete");
+check((await objectCount()) === 2, "추가분 삭제 후 2개");
 // 아군 경로: 3점 + 더블클릭
 await page.click("[data-tool=path_ally]");
 await clickBoard(0.5, 0.8);

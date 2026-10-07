@@ -52,6 +52,15 @@ export default async function TacticListPage({ params, searchParams }: Props) {
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
       <section className="min-w-0 flex-1">
+        {map.splashUrl ? (
+          <div className="relative mb-4 h-28 overflow-hidden rounded-md border border-line">
+            {/* 공식 스플래시 (assets:sync). next/image 대신 <img>: 외부 CDN 배너 한 장 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={map.splashUrl} alt={map.nameKo} className="h-full w-full object-cover opacity-70" />
+            <div className="absolute inset-0 bg-gradient-to-r from-base via-base/60 to-transparent" />
+            <div className="absolute bottom-3 left-4 font-display text-4xl font-bold uppercase tracking-wider">{map.nameEn}</div>
+          </div>
+        ) : null}
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <h1 className="font-display text-3xl font-bold tracking-wide">
             전술 보드 · <span className="uppercase">{map.nameEn}</span>

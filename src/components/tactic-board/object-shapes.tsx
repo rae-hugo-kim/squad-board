@@ -1,11 +1,26 @@
 "use client";
 
-import type { RoleGroup } from "@/db/schema";
+import type { Ability, RoleGroup } from "@/db/schema";
 import { ROLE_LABELS } from "@/db/seed-data";
 import { arrowHead, BOARD, sectorPath, starPoints } from "@/lib/tactics/geometry";
 import { ALLY_COLOR, ENEMY_COLOR, OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 
-export type AgentLite = { id: string; nameKo: string; roleGroup: RoleGroup };
+export type AgentLite = { id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null; abilities?: Ability[] };
+
+/** 스킬 핑 중앙에 올리는 공식 스킬 아이콘 배지. 아이콘이 없으면 아무것도 그리지 않는다(도형만). */
+function AbilityBadge({ obj, agentById, cx, cy, scale }: { obj: BoardObject; agentById: Map<string, AgentLite>; cx: number; cy: number; scale: number }) {
+  const agent = obj.casterAgentId ? agentById.get(obj.casterAgentId) : undefined;
+  const ability = agent?.abilities?.find((a) => a.key === obj.abilityKey);
+  const url = ability?.iconUrl;
+  if (!url) return null;
+  const r = 11 / scale;
+  return (
+    <g pointerEvents="none">
+      <circle cx={cx} cy={cy} r={r} fill="#0a1017" stroke="#ece8e1" strokeWidth={1 / scale} opacity={0.9} />
+      <image href={url} x={cx - r * 0.72} y={cy - r * 0.72} width={r * 1.44} height={r * 1.44} preserveAspectRatio="xMidYMid meet" />
+    </g>
+  );
+}
 
 /**
  * 객체 종류별 SVG 도형 (기획서 4절 표). 좌표는 0~1 → ×1000.
@@ -50,15 +65,30 @@ export function ObjectShape({
       const agent = obj.casterAgentId ? agentById.get(obj.casterAgentId) : undefined;
       const text = agent ? agent.nameKo.slice(0, 2) : obj.slotNo ? String(obj.slotNo) : team === "enemy" ? "E" : "?";
       const r = 14 / scale;
+      const clipId = `clip-${obj.id}`;
       return (
         <g>
           {selectionRing}
-          <circle cx={cx} cy={cy} r={r} fill={fill} stroke="#0a1017" strokeWidth={sw} />
-          {agent ? <circle cx={cx + r * 0.75} cy={cy - r * 0.75} r={4 / scale} fill={ROLE_LABELS[agent.roleGroup].cssVar} stroke="#0a1017" strokeWidth={1 / scale} /> : null}
-          <text x={cx} y={cy + 4.5 / scale} textAnchor="middle" fontSize={11 / scale} fontWeight={700} fill="#0a1017" fontFamily="Pretendard, sans-serif">
-            {text}
-          </text>
-          {obj.slotNo && agent ? (
+          {agent?.iconUrl ? (
+            <>
+              <defs>
+                <clipPath id={clipId}>
+                  <circle cx={cx} cy={cy} r={r} />
+                </clipPath>
+              </defs>
+              <circle cx={cx} cy={cy} r={r + 2.5 / scale} fill={fill} />
+              <image href={agent.iconUrl} x={cx - r} y={cy - r} width={r * 2} height={r * 2} clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+            </>
+          ) : (
+            <>
+              <circle cx={cx} cy={cy} r={r} fill={fill} stroke="#0a1017" strokeWidth={sw} />
+              {agent ? <circle cx={cx + r * 0.75} cy={cy - r * 0.75} r={4 / scale} fill={ROLE_LABELS[agent.roleGroup].cssVar} stroke="#0a1017" strokeWidth={1 / scale} /> : null}
+              <text x={cx} y={cy + 4.5 / scale} textAnchor="middle" fontSize={11 / scale} fontWeight={700} fill="#0a1017" fontFamily="Pretendard, sans-serif">
+                {text}
+              </text>
+            </>
+          )}
+          {obj.slotNo ? (
             <text x={cx} y={cy - 18 / scale} textAnchor="middle" fontSize={10 / scale} fill="#9da6ae" fontFamily="JetBrains Mono, monospace">
               #{obj.slotNo}
             </text>
@@ -72,6 +102,7 @@ export function ObjectShape({
       return (
         <g>
           <circle cx={cx} cy={cy} r={r} fill={hue ? `${hue}55` : base} stroke={stroke} strokeWidth={sw} />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {selected ? <circle cx={cx} cy={cy} r={r + 4 / scale} fill="none" stroke="#ff4655" strokeWidth={sw} strokeDasharray={`${4 / scale} ${3 / scale}`} /> : null}
           {label}
         </g>
@@ -83,6 +114,7 @@ export function ObjectShape({
         <g>
           <circle cx={cx} cy={cy} r={r} fill={`${hue ?? "#ff7a2e"}33`} stroke={stroke} strokeWidth={sw} strokeDasharray={`${5 / scale} ${3 / scale}`} />
           <polygon points={`${cx},${cy - 9 / scale} ${cx + 6 / scale},${cy + 5 / scale} ${cx - 6 / scale},${cy + 5 / scale}`} fill={stroke} />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {selected ? <circle cx={cx} cy={cy} r={r + 4 / scale} fill="none" stroke="#ff4655" strokeWidth={sw} strokeDasharray={`${4 / scale} ${3 / scale}`} /> : null}
           {label}
         </g>
@@ -94,6 +126,7 @@ export function ObjectShape({
         <g>
           <path d={sectorPath(cx, cy, r, obj.angle ?? 70, obj.rotation)} fill={`${hue ?? "#5ac8fa"}2e`} stroke={stroke} strokeWidth={sw} />
           <circle cx={cx} cy={cy} r={5 / scale} fill={stroke} />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {selectionRing}
           {label}
         </g>
@@ -104,6 +137,7 @@ export function ObjectShape({
         <g>
           {selectionRing}
           <polygon points={starPoints(cx, cy, 13 / scale, 6 / scale)} fill={hue ?? base} stroke="#0a1017" strokeWidth={1 / scale} />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {label}
         </g>
       );
@@ -114,6 +148,7 @@ export function ObjectShape({
           {selectionRing}
           <rect x={cx - s} y={cy - s} width={s * 2} height={s * 2} fill={hue ?? base} stroke="#0a1017" strokeWidth={1 / scale} />
           <rect x={cx - s / 2} y={cy - s / 2} width={s} height={s} fill="#0a1017" />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {label}
         </g>
       );
@@ -124,6 +159,7 @@ export function ObjectShape({
         <g>
           {selectionRing}
           <polygon points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`} fill={hue ?? base} stroke="#0a1017" strokeWidth={1 / scale} />
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
           {label}
         </g>
       );

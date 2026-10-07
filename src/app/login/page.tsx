@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { members } from "@/db/schema";
 import { getCurrentMember } from "@/lib/auth";
 import { LoginForm } from "./login-form";
+import { RiotNotice } from "@/components/riot-notice";
 
 export const metadata: Metadata = { title: "입장" };
 
@@ -29,8 +30,8 @@ export default async function LoginPage({ searchParams }: Props) {
     .orderBy(asc(members.nickname));
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm">
+    <main className="flex min-h-screen flex-col items-center justify-center px-4">
+      <div className="w-full max-w-sm flex-1 content-center">
         <div className="mb-8 flex items-center gap-3">
           <div
             className="h-7 w-7 bg-accent"
@@ -41,6 +42,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </div>
         <LoginForm members={list} next={next} />
       </div>
+      <RiotNotice />
     </main>
   );
 }

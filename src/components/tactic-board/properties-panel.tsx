@@ -4,7 +4,7 @@ import type { Ability, RoleGroup } from "@/db/schema";
 import { ABILITY_KIND_LABELS, ROLE_LABELS } from "@/db/seed-data";
 import { OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 
-export type AgentWithAbilities = { id: string; nameKo: string; roleGroup: RoleGroup; abilities: Ability[] };
+export type AgentWithAbilities = { id: string; nameKo: string; roleGroup: RoleGroup; abilities: Ability[]; iconUrl?: string | null };
 
 /**
  * 선택한 객체의 속성 패널 (기획서 4절 "객체 클릭 시 우측에 속성 패널").
