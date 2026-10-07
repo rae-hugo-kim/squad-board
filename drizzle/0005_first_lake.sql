@@ -1,0 +1,1 @@
+ALTER TABLE `tactic_objects` ADD `length` real;

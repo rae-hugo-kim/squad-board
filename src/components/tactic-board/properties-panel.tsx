@@ -2,9 +2,10 @@
 
 import type { Ability, RoleGroup } from "@/db/schema";
 import { ABILITY_KIND_LABELS, ROLE_LABELS } from "@/db/seed-data";
-import { OBJECT_META, type BoardObject } from "@/lib/tactics/types";
+import { boardToMeters, formatMeters, geometryFor, metersToBoard } from "@/lib/tactics/ability-geometry";
+import { DRAW_COLORS, OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 
-export type AgentWithAbilities = { id: string; nameKo: string; roleGroup: RoleGroup; abilities: Ability[]; iconUrl?: string | null };
+export type AgentWithAbilities = { id: string; slug: string; nameKo: string; roleGroup: RoleGroup; abilities: Ability[]; iconUrl?: string | null };
 
 /**
  * 선택한 객체의 속성 패널 (기획서 4절 "객체 클릭 시 우측에 속성 패널").
@@ -14,6 +15,7 @@ export function PropertiesPanel({
   obj,
   objects,
   agents,
+  unitsPerBoard,
   readOnly,
   onChange,
   onDelete,
@@ -22,6 +24,8 @@ export function PropertiesPanel({
   obj: BoardObject;
   objects: BoardObject[];
   agents: AgentWithAbilities[];
+  /** 미니맵 폭의 게임 유닛 수 — 반경·길이를 미터로 보여주고 입력받기 위해 */
+  unitsPerBoard: number | null;
   readOnly: boolean;
   onChange: (patch: Partial<BoardObject>) => void;
   onDelete: () => void;
@@ -31,6 +35,10 @@ export function PropertiesPanel({
   const caster = obj.casterAgentId ? agents.find((a) => a.id === obj.casterAgentId) : undefined;
   const abilityOptions = caster ? caster.abilities.filter((ab) => !meta.abilityKind || ab.kind === meta.abilityKind || ab.kind === "ult") : [];
   const linkTargets = objects.filter((o) => o.id !== obj.id && OBJECT_META[o.kind].isAbility && o.kind !== "cast");
+  const casterAbility = caster?.abilities.find((ab) => ab.key === obj.abilityKey);
+  const geometry = caster && casterAbility ? geometryFor(caster.slug, casterAbility.key, casterAbility.kind) : null;
+  const radiusM = obj.radius != null ? boardToMeters(obj.radius, unitsPerBoard) : null;
+  const lengthM = obj.length != null ? boardToMeters(obj.length, unitsPerBoard) : null;
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -151,10 +159,46 @@ export function PropertiesPanel({
         {meta.hasRadius ? (
           <label className="block">
             <span className="label">
-              반경 <span className="font-mono text-muted">{((obj.radius ?? 0.04) * 100).toFixed(1)}%</span>
+              반경 <span className="font-mono text-muted" data-radius-m>{formatMeters(obj.radius, unitsPerBoard)}</span>
+              {geometry?.radiusM ? <span className="ml-1 text-muted">· 기준 {geometry.radiusM}m{geometry.confirmed ? "" : " (추정)"}</span> : null}
             </span>
-            <input type="range" min={0.5} max={30} step={0.5} value={(obj.radius ?? 0.04) * 100} onChange={(e) => onChange({ radius: Number(e.target.value) / 100 })} className="w-full accent-[var(--accent)]" />
+            <span className="flex items-center gap-2">
+              <input type="range" min={0.5} max={40} step={0.1} value={radiusM ?? 4} onChange={(e) => onChange({ radius: metersToBoard(Number(e.target.value), unitsPerBoard) })} className="w-full accent-[var(--accent)]" aria-label="반경(m)" />
+              {geometry?.radiusM ? (
+                <button type="button" onClick={() => onChange({ radius: metersToBoard(geometry.radiusM!, unitsPerBoard) })} className="btn-secondary min-h-7 whitespace-nowrap px-2 text-[11px]" title="스킬 기준 크기로 되돌리기">
+                  기준값
+                </button>
+              ) : null}
+            </span>
           </label>
+        ) : null}
+        {meta.hasLength ? (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="label">
+                길이 <span className="font-mono text-muted" data-length-m>{formatMeters(obj.length, unitsPerBoard)}</span>
+                {geometry?.lengthM ? <span className="ml-1 text-muted">· 기준 {geometry.lengthM}m{geometry.confirmed ? "" : " (추정)"}</span> : null}
+              </span>
+              <input type="range" min={1} max={60} step={0.5} value={lengthM ?? 10} onChange={(e) => onChange({ length: metersToBoard(Number(e.target.value), unitsPerBoard) })} className="w-full accent-[var(--accent)]" aria-label="길이(m)" />
+            </label>
+            <label className="block">
+              <span className="label">
+                회전 <span className="font-mono text-muted">{Math.round(((obj.rotation % 360) + 360) % 360)}°</span>
+              </span>
+              <input type="range" min={0} max={359} step={1} value={((obj.rotation % 360) + 360) % 360} onChange={(e) => onChange({ rotation: Number(e.target.value) })} className="w-full accent-[var(--accent)]" aria-label="회전(도)" />
+            </label>
+            <p className="col-span-2 text-xs text-muted">보드에서 벽의 양 끝 핸들을 끌면 길이·회전이 함께 바뀝니다.</p>
+          </div>
+        ) : null}
+        {meta.freehand ? (
+          <div className="block">
+            <span className="label">선 색</span>
+            <span className="flex flex-wrap gap-1">
+              {DRAW_COLORS.map((c) => (
+                <button key={c} type="button" onClick={() => onChange({ color: c })} className={`h-6 w-6 rounded-full border-2 ${(obj.color ?? DRAW_COLORS[0]) === c ? "border-primary" : "border-transparent"}`} style={{ background: c }} title={c} aria-label={`선 색 ${c}`} />
+              ))}
+            </span>
+          </div>
         ) : null}
         {meta.hasAngle ? (
           <div className="grid grid-cols-2 gap-2">

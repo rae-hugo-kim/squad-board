@@ -85,6 +85,7 @@ export default async function TacticBoardPage({ params, searchParams }: Props) {
         mapNameEn: detail.map.nameEn,
         mapImage: detail.map.imagePath,
         callouts: detail.map.callouts,
+        unitsPerBoard: detail.map.unitsPerBoard,
       }}
       author={detail.author ? { nickname: detail.author.nickname } : null}
       stages={detail.stages.map((s) => ({
@@ -100,6 +101,7 @@ export default async function TacticBoardPage({ params, searchParams }: Props) {
           points: o.points,
           radius: o.radius,
           angle: o.angle,
+          length: o.length,
           rotation: o.rotation,
           color: o.color,
           label: o.label,
@@ -121,7 +123,7 @@ export default async function TacticBoardPage({ params, searchParams }: Props) {
         positionHint: s.positionHint,
         fixedMemberId: s.fixedMemberId,
       }))}
-      agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup, abilities: a.abilities, iconUrl: a.iconUrl }))}
+      agents={agentList.map((a) => ({ id: a.id, slug: a.slug, nameKo: a.nameKo, roleGroup: a.roleGroup, abilities: a.abilities, iconUrl: a.iconUrl }))}
       members={memberList.map((m) => ({ id: m.id, nickname: m.nickname }))}
       canEdit={canEdit}
       canManageShared={canManageSharedTactics(me)}

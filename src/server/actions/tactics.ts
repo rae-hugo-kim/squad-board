@@ -24,7 +24,7 @@ import {
 import { requireMember } from "@/lib/auth";
 import { createLogger, errorMeta } from "@/lib/logger";
 import { canEditTactic, canManageSharedTactics, EDIT_DENIED_MESSAGE, SHARED_DENIED_MESSAGE } from "@/lib/tactics/permissions";
-import { LAYER_HUES, MAX_OBJECTS_PER_STAGE, MAX_PATH_POINTS, MAX_STAGES } from "@/lib/tactics/types";
+import { LAYER_HUES, MAX_FREEHAND_POINTS, MAX_OBJECTS_PER_STAGE, MAX_STAGES } from "@/lib/tactics/types";
 import type { ActionResult } from "./auth";
 
 /**
@@ -333,9 +333,11 @@ const objectSchema = z.object({
   kind: z.enum(TACTIC_OBJECT_KINDS),
   x: unit,
   y: unit,
-  points: z.array(pointSchema).max(MAX_PATH_POINTS).default([]),
-  radius: z.number().min(0.005).max(0.5).nullable().default(null),
+  // 자유 그리기가 가장 많은 점을 쓴다(클릭 경로는 MAX_PATH_POINTS, 편집기가 제한)
+  points: z.array(pointSchema).max(MAX_FREEHAND_POINTS).default([]),
+  radius: z.number().min(0.002).max(0.5).nullable().default(null),
   angle: z.number().min(5).max(360).nullable().default(null),
+  length: z.number().min(0.005).max(1.5).nullable().default(null),
   rotation: z.number().min(-360).max(360).default(0),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().default(null),
   label: z.string().trim().max(40).default(""),

@@ -25,6 +25,10 @@ export type ObjectMeta = {
   hasRadius: boolean;
   /** 부채꼴(정보 스킬)인지 */
   hasAngle: boolean;
+  /** 길이·회전을 가지는 벽형인지 */
+  hasLength: boolean;
+  /** 자유 그리기(프리핸드)인지 — 경로형이지만 화살촉이 없고 드래그로 그린다 */
+  freehand: boolean;
   /** 시전 요원·스킬을 고르는 스킬 핑인지 */
   isAbility: boolean;
   /** 팔레트 그룹 */
@@ -34,27 +38,35 @@ export type ObjectMeta = {
 };
 
 export const OBJECT_META: Record<TacticObjectKind, ObjectMeta> = {
-  agent: { label: "요원 토큰", color: "#2ee6d6", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "token" },
-  smoke: { label: "연막", color: "rgba(170,190,210,0.45)", isPath: false, hasRadius: true, hasAngle: false, isAbility: true, group: "ability", abilityKind: "smoke" },
-  flash: { label: "섬광", color: "#fff07a", isPath: false, hasRadius: false, hasAngle: false, isAbility: true, group: "ability", abilityKind: "flash" },
-  trap: { label: "설치형", color: "#c77dff", isPath: false, hasRadius: false, hasAngle: false, isAbility: true, group: "ability", abilityKind: "trap" },
-  molly: { label: "몰리", color: "#ff7a2e", isPath: false, hasRadius: true, hasAngle: false, isAbility: true, group: "ability", abilityKind: "molly" },
-  recon: { label: "정보 스킬", color: "#5ac8fa", isPath: false, hasRadius: true, hasAngle: true, isAbility: true, group: "ability", abilityKind: "recon" },
-  cast: { label: "스킬 시전 위치", color: "#ece8e1", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "ability" },
-  objective: { label: "중요 거점", color: "#ffc857", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "mark" },
-  danger: { label: "위험 지점", color: "#ff4655", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "mark" },
-  note: { label: "자유 메모", color: "#9da6ae", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "mark" },
-  timing: { label: "타이밍 라벨", color: "#ece8e1", isPath: false, hasRadius: false, hasAngle: false, isAbility: false, group: "mark" },
-  path_ally: { label: "아군 이동 경로", color: "#2ee6d6", isPath: true, hasRadius: false, hasAngle: false, isAbility: false, group: "path" },
-  path_enemy_expected: { label: "상대 예상 동선", color: "#ff8a3d", isPath: true, hasRadius: false, hasAngle: false, isAbility: false, group: "path" },
-  path_enemy_actual: { label: "상대 실제 동선", color: "#ff8a3d", isPath: true, hasRadius: false, hasAngle: false, isAbility: false, group: "path" },
+  agent: { label: "요원 토큰", color: "#2ee6d6", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "token" },
+  smoke: { label: "연막", color: "rgba(170,190,210,0.45)", isPath: false, hasRadius: true, hasAngle: false, hasLength: false, freehand: false, isAbility: true, group: "ability", abilityKind: "smoke" },
+  flash: { label: "섬광", color: "#fff07a", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: true, group: "ability", abilityKind: "flash" },
+  trap: { label: "설치형", color: "#c77dff", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: true, group: "ability", abilityKind: "trap" },
+  molly: { label: "몰리", color: "#ff7a2e", isPath: false, hasRadius: true, hasAngle: false, hasLength: false, freehand: false, isAbility: true, group: "ability", abilityKind: "molly" },
+  recon: { label: "정보 스킬", color: "#5ac8fa", isPath: false, hasRadius: true, hasAngle: true, hasLength: false, freehand: false, isAbility: true, group: "ability", abilityKind: "recon" },
+  cast: { label: "스킬 시전 위치", color: "#ece8e1", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "ability" },
+  objective: { label: "중요 거점", color: "#ffc857", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "mark" },
+  danger: { label: "위험 지점", color: "#ff4655", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "mark" },
+  note: { label: "자유 메모", color: "#9da6ae", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "mark" },
+  timing: { label: "타이밍 라벨", color: "#ece8e1", isPath: false, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "mark" },
+  path_ally: { label: "아군 이동 경로", color: "#2ee6d6", isPath: true, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "path" },
+  path_enemy_expected: { label: "상대 예상 동선", color: "#ff8a3d", isPath: true, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "path" },
+  path_enemy_actual: { label: "상대 실제 동선", color: "#ff8a3d", isPath: true, hasRadius: false, hasAngle: false, hasLength: false, freehand: false, isAbility: false, group: "path" },
+  wall: { label: "벽 / 장막", color: "#9fd3ff", isPath: false, hasRadius: false, hasAngle: false, hasLength: true, freehand: false, isAbility: true, group: "ability" },
+  draw: { label: "자유 그리기", color: "#ece8e1", isPath: true, hasRadius: false, hasAngle: false, hasLength: false, freehand: true, isAbility: false, group: "path" },
 };
 
 export const OBJECT_KIND_ORDER = Object.keys(OBJECT_META) as TacticObjectKind[];
 
-/** 기본 반경(맵 폭 대비). 연막 ≈ 맵의 4.5%, 몰리 3%, 정보 스킬 부채꼴 12% */
-export const DEFAULT_RADIUS: Partial<Record<TacticObjectKind, number>> = { smoke: 0.045, molly: 0.03, recon: 0.12 };
+/**
+ * 기본 반경(맵 폭 대비) — 맵 스케일을 모를 때의 마지막 대비값. 실제 기본 크기는 ability-geometry.ts의 defaultSizeFor가
+ * 미터 → 비율로 환산해 정한다(연막 4.1m 등).
+ */
+export const DEFAULT_RADIUS: Partial<Record<TacticObjectKind, number>> = { smoke: 0.029, molly: 0.021, recon: 0.084 };
 export const DEFAULT_ANGLE = 70;
+
+/** 자유 그리기 색 견본 (Valoplant처럼 몇 가지 고정 색) */
+export const DRAW_COLORS = ["#ece8e1", "#ff4655", "#ffc857", "#2ee6d6", "#ff8a3d", "#c77dff", "#4fd98a"];
 
 export const ENEMY_COLOR = "#ff8a3d";
 export const ALLY_COLOR = "#2ee6d6";
@@ -68,6 +80,8 @@ export type BoardObject = {
   points: Array<{ x: number; y: number }>;
   radius: number | null;
   angle: number | null;
+  /** 벽 길이(맵 폭 대비 비율). 벽형이 아니면 null */
+  length: number | null;
   rotation: number;
   color: string | null;
   label: string;
@@ -83,4 +97,9 @@ export type BoardObject = {
 
 export const MAX_OBJECTS_PER_STAGE = 300;
 export const MAX_STAGES = 8;
+/** 클릭으로 찍는 경로의 점 상한 */
 export const MAX_PATH_POINTS = 60;
+/** 자유 그리기 점 상한 — 드래그 중 간격 샘플링(MIN_DRAW_STEP)으로 줄인 뒤의 값. 서버 검증은 이 값을 쓴다 */
+export const MAX_FREEHAND_POINTS = 300;
+/** 자유 그리기에서 직전 점과 이보다 가까우면 점을 추가하지 않는다(보드 비율) */
+export const MIN_DRAW_STEP = 0.004;
