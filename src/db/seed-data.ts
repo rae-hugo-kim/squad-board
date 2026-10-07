@@ -18,8 +18,7 @@ export type SeedMap = {
 
 /**
  * 맵 탑뷰 이미지 경로 규칙. public/maps/<slug>.svg 는 사이트 위치만 표시한 자리표시자다 —
- * 실제 탑뷰 이미지(비상업 팬 프로젝트 범위의 Riot 에셋)를 쓰려면 같은 이름의 파일로 바꾸거나
- * 관리 화면 없이 DB의 maps.image_path를 바꾸면 된다. 보드는 이미지를 1:1 정사각형으로 깔고
+ * 공식 미니맵은 `npm run assets:sync`(배포 빌드 자동)가 maps.image_path를 공식 에셋 URL로 덮어쓴다. 보드는 이미지를 1:1 정사각형으로 깔고
  * 좌표를 0~1로 저장하므로 해상도가 달라도 전술이 그대로 맞는다.
  */
 export const mapImagePath = (slug: string) => `/maps/${slug}.svg`;
@@ -92,6 +91,7 @@ export const ABILITY_KIND_LABELS: Record<Ability["kind"], string> = {
   move: "이동",
   heal: "치유",
   ult: "궁극기",
+  other: "기타",
 };
 
 /** 역할군 한글 표기와 색 토큰 — 화면 공통 */

@@ -31,9 +31,13 @@ export const ROUND_TYPES = ["pistol", "eco", "fullbuy", "any"] as const;
 export type RoundType = (typeof ROUND_TYPES)[number];
 
 /** 스킬 유형 (기획서 3절 Agent: 연막/섬광/설치형/몰리/정보/이동/치유/궁극기) */
-export const ABILITY_KINDS = ["smoke", "flash", "trap", "molly", "recon", "move", "heal", "ult"] as const;
+export const ABILITY_KINDS = ["smoke", "flash", "trap", "molly", "recon", "move", "heal", "ult", "other"] as const;
 export type AbilityKind = (typeof ABILITY_KINDS)[number];
-export type Ability = { key: string; nameKo: string; kind: AbilityKind };
+/** key: c/q/e/x. iconUrl은 공식 에셋 동기화(assets:sync)가 채운다 — 없으면 아이콘 없이 글자로 표시. */
+export type Ability = { key: string; nameKo: string; kind: AbilityKind; iconUrl?: string | null; description?: string | null };
+
+/** 맵 콜아웃 (공식 데이터). 좌표는 미니맵 기준 0~1 — 보드 객체 좌표계와 같다. */
+export type MapCallout = { name: string; region: string; x: number; y: number };
 
 /** 보드 객체 종류 (기획서 4절 표). 점 객체와 경로 객체가 섞여 있어 좌표는 x/y 또는 points로 나뉜다. */
 export const TACTIC_OBJECT_KINDS = [
@@ -98,8 +102,13 @@ export const maps = sqliteTable("maps", {
   sites: text("sites", { mode: "json" }).$type<string[]>().notNull().default(["A", "B"]),
   /** 현재 경쟁전 맵 풀 포함 여부. 관리자가 로테이션마다 토글. */
   inPool: integer("in_pool", { mode: "boolean" }).notNull().default(true),
-  /** 탑뷰 이미지 경로(public/ 기준). 3단계 전술 보드에서 사용. */
+  /** 탑뷰(미니맵) 이미지. public/ 경로(자리표시자) 또는 공식 에셋 URL(assets:sync가 채움). */
   imagePath: text("image_path"),
+  /** 공식 스플래시·목록용 이미지 URL (assets:sync). 목록·헤더 장식용. */
+  splashUrl: text("splash_url"),
+  listIconUrl: text("list_icon_url"),
+  /** 공식 콜아웃 목록 (assets:sync). 보드에서 라벨 켜기/끄기. */
+  callouts: text("callouts", { mode: "json" }).$type<MapCallout[]>().notNull().default([]),
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
@@ -112,6 +121,9 @@ export const agents = sqliteTable("agents", {
   nameKo: text("name_ko").notNull(),
   nameEn: text("name_en").notNull(),
   roleGroup: text("role_group").$type<RoleGroup>().notNull(),
+  /** 공식 요원 아이콘·초상 URL (assets:sync). 없으면 역할군 색 원에 이니셜. */
+  iconUrl: text("icon_url"),
+  portraitUrl: text("portrait_url"),
   /** 스킬 4종. 전술 보드의 스킬 핑(연막·섬광 등)이 "누구의 어떤 스킬인지"를 여기서 고른다. */
   abilities: text("abilities", { mode: "json" }).$type<Ability[]>().notNull().default([]),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),

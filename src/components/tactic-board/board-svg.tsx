@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
-import type { Point } from "@/db/schema";
+import type { MapCallout, Point } from "@/db/schema";
 import { BOARD, type View } from "@/lib/tactics/geometry";
 import { OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 import { LinkLine, ObjectShape, type AgentLite } from "./object-shapes";
@@ -16,6 +16,9 @@ export type BoardLayer = {
 
 type Props = {
   mapImage: string | null;
+  /** 공식 콜아웃 라벨 (assets:sync). showCallouts일 때만 그린다 */
+  callouts?: MapCallout[];
+  showCallouts?: boolean;
   layers: BoardLayer[];
   agentById: Map<string, AgentLite>;
   view: View;
@@ -39,7 +42,7 @@ type Props = {
  * viewBox는 1000×1000 고정이고 확대·이동은 안쪽 <g transform>으로 처리한다 (좌표 변환이 단순해진다).
  */
 export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
-  { mapImage, layers, agentById, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onWheel, onDoubleClick, cursor, className },
+  { mapImage, callouts, showCallouts, layers, agentById, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onWheel, onDoubleClick, cursor, className },
   ref,
 ) {
   return (
@@ -58,6 +61,26 @@ export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
     >
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
         {mapImage ? <image href={mapImage} x={0} y={0} width={BOARD} height={BOARD} preserveAspectRatio="xMidYMid meet" /> : <rect width={BOARD} height={BOARD} fill="#0a1017" />}
+        {showCallouts && callouts?.length ? (
+          <g pointerEvents="none" opacity={0.85}>
+            {callouts.map((c, i) => (
+              <text
+                key={`${c.name}-${i}`}
+                x={c.x * BOARD}
+                y={c.y * BOARD}
+                textAnchor="middle"
+                fontSize={11 / view.scale}
+                fill="#9da6ae"
+                stroke="#0a1017"
+                strokeWidth={2.5 / view.scale}
+                paintOrder="stroke"
+                fontFamily="Pretendard, sans-serif"
+              >
+                {c.name}
+              </text>
+            ))}
+          </g>
+        ) : null}
         {layers.map((layer) => {
           const byId = new Map(layer.objects.map((o) => [o.id, o]));
           // 연막·몰리·정보 범위(면)를 먼저, 그 위에 점·토큰·경로를 그려 토큰이 가려지지 않게 한다

@@ -23,7 +23,7 @@ export async function loadComposeInput(
       .from(memberMapPreferences)
       .where(and(eq(memberMapPreferences.mapId, mapId), inArray(memberMapPreferences.memberId, memberIds))),
     db
-      .select({ id: agents.id, nameKo: agents.nameKo, roleGroup: agents.roleGroup })
+      .select({ id: agents.id, nameKo: agents.nameKo, roleGroup: agents.roleGroup, iconUrl: agents.iconUrl })
       .from(agents)
       .where(eq(agents.isActive, true)),
   ]);

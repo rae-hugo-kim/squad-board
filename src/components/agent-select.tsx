@@ -3,7 +3,7 @@
 import type { RoleGroup } from "@/db/schema";
 import { ROLE_LABELS } from "@/db/seed-data";
 
-export type AgentOption = { id: string; nameKo: string; roleGroup: RoleGroup };
+export type AgentOption = { id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null };
 
 const ROLE_ORDER: RoleGroup[] = ["duelist", "initiator", "controller", "sentinel"];
 

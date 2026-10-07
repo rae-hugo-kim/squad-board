@@ -7,6 +7,7 @@ import type { ActionResult } from "@/server/actions/auth";
 import { AgentSelect, type AgentOption } from "@/components/agent-select";
 import { MATCH_RESULT_ORDER, MemberAvatar, RESULT_LABELS, ResultBadge } from "@/components/result-badge";
 import { RoleDot } from "@/components/role-dot";
+import { AgentIcon } from "@/components/agent-icon";
 
 export type MatchEditorData = {
   id: string;
@@ -271,7 +272,7 @@ export function MatchEditor({
                       </td>
                       <td className="py-2 pr-3">
                         <span className="inline-flex items-center gap-2">
-                          {agent ? <RoleDot role={agent.roleGroup} /> : null}
+                          {agent ? agent.iconUrl ? <AgentIcon agent={agent} size={26} /> : <RoleDot role={agent.roleGroup} /> : null}
                           <AgentSelect
                             name={`p_${p.id}_agentId`}
                             value={st.agentId}

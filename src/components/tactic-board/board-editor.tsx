@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import Link from "next/link";
-import type { Point, RoleGroup, RoundType, TacticObjectKind, TacticSide } from "@/db/schema";
+import type { AbilityKind, MapCallout, Point, RoleGroup, RoundType, TacticObjectKind, TacticSide } from "@/db/schema";
+import { ROLE_LABELS } from "@/db/seed-data";
+import { AbilityIcon, AgentIcon } from "@/components/agent-icon";
 import { clamp01, clientToBoard, DEFAULT_VIEW, distanceToPolyline, translatePoints, zoomAt, type View } from "@/lib/tactics/geometry";
 import {
   DEFAULT_ANGLE,
@@ -27,7 +29,19 @@ import { TacticMetaForm } from "./tactic-meta-form";
 export type EditorStage = { id: string; seq: number; name: string; memo: string; objects: BoardObject[] };
 
 type Props = {
-  tactic: { id: string; name: string; side: TacticSide; roundType: RoundType; tags: string[]; layerHue: number; mapSlug: string; mapNameKo: string; mapNameEn: string; mapImage: string | null };
+  tactic: {
+    id: string;
+    name: string;
+    side: TacticSide;
+    roundType: RoundType;
+    tags: string[];
+    layerHue: number;
+    mapSlug: string;
+    mapNameKo: string;
+    mapNameEn: string;
+    mapImage: string | null;
+    callouts: MapCallout[];
+  };
   author: { nickname: string } | null;
   stages: EditorStage[];
   slots: SlotDraft[];
@@ -39,12 +53,26 @@ type Props = {
 type Tool = "select" | TacticObjectKind;
 type Drag = { id: string; start: Point; origin: Point; originPoints: Point[] } | null;
 
+/** 요원 격자 아래의 일반 도구. 스킬 핑은 요원의 스킬 아이콘에서 고르므로 여기엔 "시전 위치"만 둔다. */
 const PALETTE: Array<{ group: string; kinds: TacticObjectKind[] }> = [
-  { group: "토큰", kinds: ["agent"] },
-  { group: "스킬", kinds: ["smoke", "flash", "trap", "molly", "recon", "cast"] },
+  { group: "일반 스킬 핑 (요원 미지정)", kinds: ["smoke", "flash", "trap", "molly", "recon", "cast"] },
   { group: "표식", kinds: ["objective", "danger", "note", "timing"] },
   { group: "경로", kinds: ["path_ally", "path_enemy_expected", "path_enemy_actual"] },
 ];
+const ROLE_ORDER: RoleGroup[] = ["duelist", "initiator", "controller", "sentinel"];
+
+/** 스킬 유형 → 보드 객체 종류. 이동·치유·궁극기·기타는 "시전 위치" 마름모에 스킬 아이콘을 얹어 표현한다. */
+const KIND_FOR_ABILITY: Record<AbilityKind, TacticObjectKind> = {
+  smoke: "smoke",
+  flash: "flash",
+  trap: "trap",
+  molly: "molly",
+  recon: "recon",
+  move: "cast",
+  heal: "cast",
+  ult: "cast",
+  other: "cast",
+};
 
 const AUTOSAVE_MS = 2500;
 
@@ -71,7 +99,10 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("select");
-  const [agentTool, setAgentTool] = useState<{ slotNo: number | null; team: "ally" | "enemy" }>({ slotNo: 1, team: "ally" });
+  const [agentTool, setAgentTool] = useState<{ slotNo: number | null; team: "ally" | "enemy"; agentId: string | null }>({ slotNo: 1, team: "ally", agentId: null });
+  /** 요원 스킬 아이콘에서 고른 스킬 — 다음에 놓는 스킬 핑에 시전 요원·스킬이 미리 채워진다 */
+  const [abilityTool, setAbilityTool] = useState<{ casterAgentId: string; abilityKey: string } | null>(null);
+  const [showCallouts, setShowCallouts] = useState(true);
   const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [draft, setDraft] = useState<Point[]>([]);
   const [drag, setDrag] = useState<Drag>(null);
@@ -84,7 +115,11 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
   const stage = stages.find((s) => s.id === stageId) ?? stages[0];
   const objects = useMemo(() => stage?.objects ?? [], [stage]);
   const selected = objects.find((o) => o.id === selectedId) ?? null;
-  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, { id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup as RoleGroup }])), [agents]);
+  const agentById = useMemo(
+    () => new Map(agents.map((a) => [a.id, { id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup as RoleGroup, iconUrl: a.iconUrl, abilities: a.abilities }])),
+    [agents],
+  );
+  const paletteAgent = agentTool.agentId ? agents.find((a) => a.id === agentTool.agentId) : undefined;
   const readOnly = !canEdit;
 
   // ----- 객체 변경 (항상 새 배열을 만든다 — 불변 업데이트) -----
@@ -115,8 +150,9 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
         memo: "",
         slotNo: kind === "agent" ? agentTool.slotNo : null,
         team: kind === "agent" ? agentTool.team : null,
-        casterAgentId: null,
-        abilityKey: null,
+        // 요원 토큰은 격자에서 고른 요원을, 스킬 핑은 스킬 아이콘에서 고른 시전 요원·스킬을 미리 채운다
+        casterAgentId: kind === "agent" ? agentTool.agentId : abilityTool && meta.isAbility ? abilityTool.casterAgentId : null,
+        abilityKey: kind !== "agent" && abilityTool && meta.isAbility ? abilityTool.abilityKey : null,
         linkedObjectId: null,
         externalUrl: null,
         sortOrder: objects.length,
@@ -124,7 +160,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
       updateObjects((prev) => [...prev, obj]);
       setSelectedId(obj.id);
     },
-    [objects.length, agentTool, updateObjects],
+    [objects.length, agentTool, abilityTool, updateObjects],
   );
 
   const patchSelected = (patch: Partial<BoardObject>) => {
@@ -342,6 +378,11 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
           <button type="button" onClick={() => setView(DEFAULT_VIEW)} className="btn-secondary min-h-9 px-3 text-xs" title="확대 초기화">
             {Math.round(view.scale * 100)}%
           </button>
+          {tactic.callouts.length ? (
+            <button type="button" onClick={() => setShowCallouts((v) => !v)} className={`min-h-9 rounded-sm border px-3 text-xs ${showCallouts ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`} aria-pressed={showCallouts}>
+              콜아웃
+            </button>
+          ) : null}
           <form action={duplicateTacticAction}>
             <input type="hidden" name="tacticId" value={tactic.id} />
             <button type="submit" className="btn-secondary min-h-9 px-3 text-xs">
@@ -392,33 +433,65 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
 
       <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_300px]">
         {/* 팔레트 */}
-        <aside className="card flex flex-col gap-3 p-3 text-sm">
+        {/* 팔레트·속성 패널은 화면 높이 안에서 자체 스크롤한다 — 요원 격자 때문에 길어져도 보드가 화면 밖으로 밀리지 않도록 */}
+        <aside className="card flex max-h-[calc(100vh-7rem)] flex-col gap-3 overflow-y-auto p-3 text-sm lg:sticky lg:top-4" data-palette>
           <button type="button" onClick={() => { setTool("select"); setDraft([]); }} className={`rounded-sm border px-2 py-1.5 text-left ${tool === "select" ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`} disabled={readOnly}>
             선택 / 이동
           </button>
-          {PALETTE.map((g) => (
-            <div key={g.group}>
-              <div className="label">{g.group}</div>
-              <div className="flex flex-col gap-1">
-                {g.kinds.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    disabled={readOnly}
-                    onClick={() => { setTool(k); setDraft([]); setSelectedId(null); }}
-                    className={`flex items-center gap-2 rounded-sm border px-2 py-1.5 text-left text-xs ${tool === k ? "border-accent bg-accent-subtle text-primary" : "border-line text-secondary hover:text-primary"} disabled:opacity-50`}
-                    data-tool={k}
-                  >
-                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OBJECT_META[k].color }} aria-hidden />
-                    {OBJECT_META[k].label}
-                  </button>
-                ))}
+
+          {/* 요원 격자 — Valoplant처럼 요원을 고르고 맵을 클릭해 토큰을 놓는다 */}
+          <div>
+            <div className="label">요원</div>
+            {ROLE_ORDER.map((g) => (
+              <div key={g} className="mb-1 flex flex-wrap gap-1" aria-label={ROLE_LABELS[g].ko}>
+                {agents
+                  .filter((a) => a.roleGroup === g)
+                  .map((a) => {
+                    const active = tool === "agent" && agentTool.agentId === a.id;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        disabled={readOnly}
+                        title={a.nameKo}
+                        data-agent={a.id}
+                        onClick={() => {
+                          setAgentTool((t) => ({ ...t, agentId: a.id }));
+                          setAbilityTool(null);
+                          setTool("agent");
+                          setDraft([]);
+                          setSelectedId(null);
+                        }}
+                        className={`rounded-full p-0.5 ${active ? "bg-accent" : "hover:bg-raised"} disabled:opacity-50`}
+                      >
+                        <AgentIcon agent={a} size={28} />
+                      </button>
+                    );
+                  })}
               </div>
-            </div>
-          ))}
-          {tool === "agent" ? (
+            ))}
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => { setAgentTool((t) => ({ ...t, agentId: null })); setAbilityTool(null); setTool("agent"); setDraft([]); }}
+              className={`mt-1 w-full rounded-sm border px-2 py-1 text-left text-xs ${tool === "agent" && !agentTool.agentId ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`}
+              data-tool="agent"
+            >
+              슬롯 토큰 (요원 미정)
+            </button>
+          </div>
+
+          {tool === "agent" || paletteAgent ? (
             <div className="rounded-md border border-line bg-base p-2 text-xs">
-              <div className="label">새 토큰 설정</div>
+              <div className="label">
+                {paletteAgent ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <AgentIcon agent={paletteAgent} size={18} /> {paletteAgent.nameKo}
+                  </span>
+                ) : (
+                  "새 토큰 설정"
+                )}
+              </div>
               <div className="mb-1 flex gap-1">
                 {[1, 2, 3, 4, 5].map((n) => (
                   <button key={n} type="button" onClick={() => setAgentTool((a) => ({ ...a, slotNo: n }))} className={`h-7 w-7 rounded-sm border font-mono ${agentTool.slotNo === n ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`}>
@@ -434,8 +507,59 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
                   적군
                 </button>
               </div>
+              {paletteAgent && paletteAgent.abilities.length ? (
+                <div className="mt-2">
+                  <div className="label">스킬 핑 — 아이콘을 고르고 맵을 클릭</div>
+                  <div className="flex gap-1">
+                    {paletteAgent.abilities.map((ab) => {
+                      const kind = KIND_FOR_ABILITY[ab.kind];
+                      const active = abilityTool?.casterAgentId === paletteAgent.id && abilityTool.abilityKey === ab.key && tool === kind;
+                      return (
+                        <button
+                          key={ab.key}
+                          type="button"
+                          disabled={readOnly}
+                          title={`${ab.key.toUpperCase()} ${ab.nameKo} · ${OBJECT_META[kind].label}`}
+                          data-ability={`${paletteAgent.id}:${ab.key}`}
+                          onClick={() => {
+                            setAbilityTool({ casterAgentId: paletteAgent.id, abilityKey: ab.key });
+                            setTool(kind);
+                            setDraft([]);
+                            setSelectedId(null);
+                          }}
+                          className={`flex flex-col items-center gap-0.5 rounded-sm border p-1 ${active ? "border-accent bg-accent-subtle" : "border-line hover:bg-raised"} disabled:opacity-50`}
+                        >
+                          <AbilityIcon ability={ab} size={22} />
+                          <span className="font-mono text-[10px] text-secondary">{ab.key.toUpperCase()}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
+
+          {PALETTE.map((g) => (
+            <div key={g.group}>
+              <div className="label">{g.group}</div>
+              <div className="flex flex-col gap-1">
+                {g.kinds.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => { setTool(k); setAbilityTool(null); setDraft([]); setSelectedId(null); }}
+                    className={`flex items-center gap-2 rounded-sm border px-2 py-1.5 text-left text-xs ${tool === k && !abilityTool ? "border-accent bg-accent-subtle text-primary" : "border-line text-secondary hover:text-primary"} disabled:opacity-50`}
+                    data-tool={k}
+                  >
+                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OBJECT_META[k].color }} aria-hidden />
+                    {OBJECT_META[k].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
           {tool !== "select" && OBJECT_META[tool].isPath ? (
             <div className="rounded-md border border-line bg-base p-2 text-xs text-secondary">
               클릭으로 점을 찍고 <b className="text-primary">더블클릭</b> 또는 Enter로 완성 ({draft.length}점)
@@ -449,10 +573,12 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
         </aside>
 
         {/* 캔버스 */}
-        <div className="card aspect-square min-w-0 overflow-hidden" style={{ minWidth: 0 }}>
+        <div className="card aspect-square min-w-0 self-start overflow-hidden" style={{ minWidth: 0 }}>
           <BoardSvg
             ref={svgRef}
             mapImage={tactic.mapImage}
+            callouts={tactic.callouts}
+            showCallouts={showCallouts}
             layers={[{ id: tactic.id, objects, hue: null, opacity: 1 }]}
             agentById={agentById}
             view={view}
@@ -470,7 +596,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
         </div>
 
         {/* 우측 패널 */}
-        <aside className="card flex flex-col gap-4 p-4">
+        <aside className="card flex max-h-[calc(100vh-7rem)] flex-col gap-4 overflow-y-auto p-4 lg:sticky lg:top-4">
           {selected ? (
             <PropertiesPanel
               obj={selected}

@@ -8,6 +8,7 @@ import { createSessionFromSquadAction } from "@/server/actions/sessions";
 import type { ActionResult } from "@/server/actions/auth";
 import { AgentSelect } from "@/components/agent-select";
 import { RoleDot } from "@/components/role-dot";
+import { AgentIcon } from "@/components/agent-icon";
 
 /**
  * 추천 조합 카드.
@@ -100,7 +101,7 @@ export function CompositionCard({
                   <td className="py-2 pr-3 font-medium">{s.nickname}</td>
                   <td className="py-2 pr-3">
                     <span className="inline-flex items-center gap-2">
-                      {agent ? <RoleDot role={agent.roleGroup} /> : null}
+                      {agent ? agent.iconUrl ? <AgentIcon agent={agent} size={26} /> : <RoleDot role={agent.roleGroup} /> : null}
                       <AgentSelect
                         name={`agent_${s.memberId}`}
                         value={agentId}

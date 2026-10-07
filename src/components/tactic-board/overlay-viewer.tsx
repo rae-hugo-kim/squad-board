@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
-import type { RoleGroup } from "@/db/schema";
+import type { Ability, MapCallout, RoleGroup } from "@/db/schema";
 import { clientToBoard, DEFAULT_VIEW, zoomAt, type View } from "@/lib/tactics/geometry";
 import { layerColor, ROUND_TYPE_LABELS, TACTIC_SIDE_LABELS, type BoardObject } from "@/lib/tactics/types";
 import type { RoundType, TacticSide } from "@/db/schema";
@@ -24,17 +24,20 @@ export type OverlayTactic = {
 export function OverlayViewer({
   mapImage,
   mapNameEn,
+  callouts,
   tactics,
   agents,
 }: {
   mapImage: string | null;
   mapNameEn: string;
+  callouts: MapCallout[];
   tactics: OverlayTactic[];
-  agents: Array<{ id: string; nameKo: string; roleGroup: RoleGroup }>;
+  agents: Array<{ id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null; abilities?: Ability[] }>;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [opacity, setOpacity] = useState(0.55);
+  const [showCallouts, setShowCallouts] = useState(false);
   const [visible, setVisible] = useState<Set<string>>(() => new Set(tactics.map((t) => t.id)));
   const [stageByTactic, setStageByTactic] = useState<Record<string, string>>(() => Object.fromEntries(tactics.map((t) => [t.id, t.stages[0]?.id ?? ""])));
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
@@ -57,7 +60,7 @@ export function OverlayViewer({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="card aspect-square overflow-hidden">
-        <BoardSvg ref={svgRef} mapImage={mapImage} layers={layers} agentById={agentById} view={view} onWheel={onWheel} />
+        <BoardSvg ref={svgRef} mapImage={mapImage} callouts={callouts} showCallouts={showCallouts} layers={layers} agentById={agentById} view={view} onWheel={onWheel} />
       </div>
       <aside className="card flex flex-col gap-4 p-4 text-sm">
         <div className="flex items-center justify-between">
@@ -66,6 +69,11 @@ export function OverlayViewer({
             <button type="button" onClick={() => setView(DEFAULT_VIEW)} className="btn-secondary min-h-8 px-2 text-xs">
               {Math.round(view.scale * 100)}%
             </button>
+            {callouts.length ? (
+              <button type="button" onClick={() => setShowCallouts((v) => !v)} className={`min-h-8 rounded-sm border px-2 text-xs ${showCallouts ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`}>
+                콜아웃
+              </button>
+            ) : null}
             <button type="button" onClick={() => svgRef.current && exportBoardPng(svgRef.current, `${mapNameEn}-overlay.png`)} className="btn-secondary min-h-8 px-2 text-xs">
               PNG 저장
             </button>

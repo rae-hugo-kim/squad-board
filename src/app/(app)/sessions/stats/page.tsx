@@ -6,6 +6,7 @@ import { getTacticStats } from "@/server/queries/tactics";
 import { TACTIC_SIDE_LABELS } from "@/lib/tactics/types";
 import { MemberAvatar, ResultBadge } from "@/components/result-badge";
 import { RoleDot } from "@/components/role-dot";
+import { AgentIcon } from "@/components/agent-icon";
 
 export const metadata: Metadata = { title: "통계" };
 export const dynamic = "force-dynamic";
@@ -166,7 +167,7 @@ export default async function StatsPage() {
                         {s.topAgents.map((a) => (
                           <li key={a.agent.id} className="flex items-center justify-between gap-2">
                             <span className="inline-flex items-center gap-1.5">
-                              <RoleDot role={a.agent.roleGroup} />
+                              {a.agent.iconUrl ? <AgentIcon agent={a.agent} size={20} /> : <RoleDot role={a.agent.roleGroup} />}
                               {a.agent.nameKo}
                             </span>
                             <span className="font-mono">
