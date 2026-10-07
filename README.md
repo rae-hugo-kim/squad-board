@@ -121,14 +121,10 @@ Vercel의 파일 시스템은 요청마다 사라지므로 SQLite 파일(`file:`
 
    Vercel 마켓플레이스(Storage → Turso)로 연결하면 `TURSO_DATABASE_URL`·`TURSO_AUTH_TOKEN` 이름으로 자동 등록되는데, 그 이름도 그대로 인식합니다.
 
-3. 마이그레이션과 시드는 Vercel이 아니라 **내 PC에서 Turso를 향해** 한 번 실행합니다 (`.env.local`에 위 4개 값을 넣고):
+3. 배포하면 끝입니다. `npm run build`가 먼저 `src/db/deploy.ts`를 실행해, 원격 DB(`libsql://`)가 설정된 빌드에서는 마이그레이션과 시드(맵·요원·초기 관리자)를 자동으로 적용한 뒤 Next.js를 빌드합니다. 여러 번 실행해도 안전합니다. 초기 관리자 닉네임을 정하려면 `SEED_ADMIN_NICKNAME`도 환경 변수에 넣으세요(없으면 `admin`).
+4. 배포 뒤 `https://<배포 주소>/api/health`가 `"ok":true`인지 확인하고 `/login`으로 입장합니다. 환경 변수가 빠지면 빌드가 아니라 `/api/health`와 첫 요청에서 드러납니다.
 
-   ```bash
-   npm run db:migrate && npm run db:seed
-   ```
-
-   새 마이그레이션이 생길 때마다 같은 방법으로 `db:migrate`를 다시 실행합니다.
-4. Vercel에서 다시 배포. 빌드 자체는 환경 변수 없이도 통과합니다(DB 연결은 첫 요청 때 만들어집니다). 변수가 빠지면 빌드가 아니라 첫 요청에서 "환경 변수 설정 오류"가 납니다.
+로컬 빌드나 Docker 빌드에서는 원격 DB가 없으므로 이 단계를 건너뜁니다. PC에서 Turso에 직접 적용하고 싶을 때는 `.env.local`에 Turso 변수를 넣고 `npm run db:migrate && npm run db:seed`를 실행하면 됩니다.
 
 ## 배포 (미니PC, Docker)
 
