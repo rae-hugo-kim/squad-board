@@ -83,11 +83,16 @@ async function seedAdmin() {
   log.info("admin member created", { nickname });
 }
 
+/** 시드 본체. CLI(`npm run db:seed`)와 배포 빌드 단계(src/db/deploy.ts)가 같이 쓴다. */
+export async function runSeed(): Promise<void> {
+  await seedMaps();
+  await seedAgents();
+  await seedAdmin();
+}
+
 async function main() {
   try {
-    await seedMaps();
-    await seedAgents();
-    await seedAdmin();
+    await runSeed();
     log.info("seed complete");
     process.exit(0);
   } catch (err) {
@@ -96,4 +101,5 @@ async function main() {
   }
 }
 
-main();
+// `node --import tsx src/db/seed.ts`로 직접 실행했을 때만 main을 돌린다 (deploy.ts가 import할 때는 실행하지 않음)
+if (process.argv[1] && /seed\.ts$/.test(process.argv[1])) main();
