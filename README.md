@@ -119,6 +119,8 @@ Vercel의 파일 시스템은 요청마다 사라지므로 SQLite 파일(`file:`
    | `DATABASE_URL` | `libsql://<db>-<org>.turso.io` |
    | `DATABASE_AUTH_TOKEN` | Turso 토큰 |
 
+   Vercel 마켓플레이스(Storage → Turso)로 연결하면 `TURSO_DATABASE_URL`·`TURSO_AUTH_TOKEN` 이름으로 자동 등록되는데, 그 이름도 그대로 인식합니다.
+
 3. 마이그레이션과 시드는 Vercel이 아니라 **내 PC에서 Turso를 향해** 한 번 실행합니다 (`.env.local`에 위 4개 값을 넣고):
 
    ```bash
