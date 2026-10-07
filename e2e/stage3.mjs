@@ -207,8 +207,9 @@ await page.waitForSelector("article:has-text('1안')");
 check((await page.locator("article:has-text('전술 A 러시 v2')").count()) === 1, "조합 카드에 전술 슬롯 표시");
 check((await page.locator("article >> text=#1 → Rae").count()) === 1, "슬롯 1(전략가·A 메인) → Rae(오멘) 바인딩");
 check((await page.locator("article li:has-text('전술 A 러시 v2: 슬롯 1/3 충족')").count()) === 1, "근거: 슬롯 1/3 충족");
-// Rae 오멘 3 + 자신감 5(+2) + 슬롯 2 + 포지션 힌트 'A 메인' 1 = 8.0
-check((await page.locator("article header:has-text('8.0점')").count()) === 1, "점수 8.0 (선호 5 + 슬롯 2 + 포지션 1)");
+// Rae 오멘 3 + 자신감 5(+2) + 선호 역할군 1순위(전략가) 1.5 + 슬롯 2 + 포지션 힌트 'A 메인' 1 = 9.5
+check((await page.locator("article header:has-text('9.5점')").count()) === 1, "점수 9.5 (요원 5 + 역할군 1.5 + 슬롯 2 + 포지션 1)");
+check((await page.locator("article >> text=역할군 1순위").count()) === 1, "카드에 '역할군 1순위' 표시");
 await page.screenshot({ path: `${shots}/10-squad-tactic.png` });
 await page.click("button:has-text('이 조합으로 세션 시작')");
 await page.waitForURL(/\/sessions\/[0-9a-f-]{36}$/);

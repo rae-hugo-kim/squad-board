@@ -15,7 +15,7 @@ export async function loadComposeInput(
   if (memberIds.length === 0) return { members: [], agents: [] };
   const [memberRows, prefRows, agentRows] = await Promise.all([
     db
-      .select({ id: members.id, nickname: members.nickname })
+      .select({ id: members.id, nickname: members.nickname, rolePreference: members.rolePreference })
       .from(members)
       .where(and(inArray(members.id, memberIds), eq(members.isActive, true))),
     db
@@ -34,6 +34,7 @@ export async function loadComposeInput(
       return {
         id: m.id,
         nickname: m.nickname,
+        rolePreference: m.rolePreference,
         pref: p
           ? {
               agentIds: [p.agent1Id, p.agent2Id, p.agent3Id],

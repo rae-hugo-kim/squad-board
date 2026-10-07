@@ -33,10 +33,12 @@ function member(
   id: string,
   prefs: [string | null, string | null, string | null] | null,
   confidence = 3,
+  rolePreference: ComposeMember["rolePreference"] = [],
 ): ComposeMember {
   return {
     id,
     nickname: id.toUpperCase(),
+    rolePreference,
     pref: prefs ? { agentIds: prefs, confidence, attackPosition: `${id}-atk`, defensePosition: `${id}-def` } : null,
   };
 }
@@ -332,4 +334,56 @@ test("evaluateAssignment도 전술 슬롯을 같은 기준으로 채점한다", 
   assert.equal(r.score, 20 + 4);
   const r2 = evaluateAssignment({ members, agents, tactics: [t], assignment: { a: "jett", b: "reyna", c: "jett", d: "cypher", e: "raze" } });
   assert.equal(r2.tacticFits[0].filled, 0, "전략가·척후대가 없으면 슬롯이 비어 있다");
+});
+
+// ---------------------------------------------------------------------------
+// 선호 역할군 (멤버 프로필 1~3순위) — 요원 선호와 별개로 입력하고 편성 점수에 반영한다
+// ---------------------------------------------------------------------------
+test("선호 역할군: 배정된 요원의 역할군이 1·2·3순위와 맞으면 +1.5 / +1 / +0.5", () => {
+  const members = [
+    member("a", ["jett", null, null], 3, ["duelist"]), // 1순위 일치 → 3+1+1.5
+    member("b", ["sova", null, null], 3, ["controller", "initiator"]), // 2순위 일치 → 3+1+1
+    member("c", ["omen", null, null], 3, ["duelist", "sentinel", "controller"]), // 3순위 → 3+1+0.5
+    member("d", ["cypher", null, null], 3, ["duelist"]), // 불일치 → 3+1
+    member("e", ["raze", null, null], 3), // 선호 역할군 없음 → 3+1
+  ];
+  const top = composeSquads({ members, agents }).compositions[0];
+  const by = Object.fromEntries(top.slots.map((s) => [s.memberId, s]));
+  assert.equal(by.a.points, 5.5);
+  assert.equal(by.b.points, 5);
+  assert.equal(by.c.points, 4.5);
+  assert.equal(by.d.points, 4);
+  assert.equal(by.e.points, 4);
+  assert.equal(by.a.roleRank, 1);
+  assert.equal(by.d.roleRank, null);
+});
+
+test("맵 선호가 없어도 선호 역할군이 있으면 그 역할군 요원을 후보로 배정한다 (요원 점수 0, 역할군 가산점만)", () => {
+  const members = [
+    member("a", ["jett", null, null]),
+    member("b", ["sova", null, null]),
+    member("c", null, 3, ["controller"]), // 맵 선호 없음, 전략가 선호
+    member("d", ["cypher", null, null]),
+    member("e", ["raze", null, null]),
+  ];
+  const top = composeSquads({ members, agents }).compositions[0];
+  const c = top.slots.find((s) => s.memberId === "c")!;
+  assert.ok(c.agentId && agents.find((x) => x.id === c.agentId)?.roleGroup === "controller", `전략가 요원 배정: ${c.agentId}`);
+  assert.equal(c.rank, null);
+  assert.equal(c.roleRank, 1);
+  assert.equal(c.points, 1.5);
+  assert.equal(top.roleCount.controller, 1);
+  assert.equal(top.meetsRules, true, "전략가 규칙을 역할군 선호 배정으로 채운다");
+  assert.ok(top.warnings.some((w) => w.includes("C") && w.includes("역할군")), `경고 문구: ${top.warnings.join(" | ")}`);
+});
+
+test("evaluateAssignment도 선호 역할군 가산점을 같은 기준으로 더한다", () => {
+  const members = [member("a", ["jett", null, null], 3, ["duelist"]), member("b", ["sova", null, null], 3, ["sentinel"])];
+  const r = evaluateAssignment({ members, agents, assignment: { a: "jett", b: "killjoy" } });
+  const by = Object.fromEntries(r.slots.map((s) => [s.memberId, s]));
+  assert.equal(by.a.points, 5.5);
+  // b: 선호 밖 요원(요원 점수 0)이지만 역할군 1순위(감시자) 일치 → +1.5
+  assert.equal(by.b.points, 1.5);
+  assert.equal(by.b.rank, null);
+  assert.equal(by.b.roleRank, 1);
 });

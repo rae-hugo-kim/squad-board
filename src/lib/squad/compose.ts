@@ -33,6 +33,10 @@ export const MAX_PARTICIPANTS = 10;
 
 /** 선호 순위별 점수 (기획서 5절 표). index 0 = 1순위. */
 export const RANK_POINTS = [3, 2, 1] as const;
+/** 선호 역할군 순위별 가산점. 배정된 요원의 역할군이 멤버의 선호 역할군 1·2·3순위와 맞을 때. */
+export const ROLE_RANK_POINTS = [1.5, 1, 0.5] as const;
+/** 맵 선호가 없는 멤버에게 선호 역할군(1순위) 요원을 후보로 줄 때 몇 명까지 (탐색량 제한) */
+export const ROLE_FALLBACK_AGENTS = 3;
 /** 전술 슬롯 1개 충족 +2, 포지션 힌트 일치 +1 */
 export const SLOT_POINTS = 2;
 export const POSITION_POINTS = 1;
@@ -51,7 +55,9 @@ export type ComposePreference = {
 export type ComposeMember = {
   id: string;
   nickname: string;
-  /** 이 맵의 선호. 미입력이면 null → 요원 없이 0점으로 참가. */
+  /** 선호 역할군 1~3순위 (프로필 단위, 맵과 무관). 비어 있을 수 있다. */
+  rolePreference: RoleGroup[];
+  /** 이 맵의 선호. 미입력이면 null → 선호 역할군 요원 후보 또는 미배정. */
   pref: ComposePreference | null;
 };
 
@@ -82,9 +88,11 @@ export type SlotAssignment = {
   memberId: string;
   nickname: string;
   agentId: string | null;
-  /** 몇 순위 선호였는지. 선호 밖·미배정이면 null. */
+  /** 몇 순위 선호 요원이었는지. 선호 밖·미배정이면 null. */
   rank: 1 | 2 | 3 | null;
-  /** 선호 순위 점수 + 자신감 보정. */
+  /** 배정 요원의 역할군이 선호 역할군 몇 순위와 맞는지. 불일치·미배정이면 null. */
+  roleRank: 1 | 2 | 3 | null;
+  /** 선호 요원 점수 + 자신감 보정 + 선호 역할군 가산점. */
   points: number;
   attackPosition: string;
   defensePosition: string;
@@ -133,7 +141,7 @@ export type ComposeOutput = {
   evaluatedTeams: number;
 };
 
-type Option = { agentId: string | null; rank: 1 | 2 | 3 | null; points: number };
+type Option = { agentId: string | null; rank: 1 | 2 | 3 | null; roleRank: 1 | 2 | 3 | null; points: number };
 
 /** 자신감 1~5 → 0~2점. 선호 요원을 받았을 때만 더한다. */
 export function confidenceBonus(confidence: number): number {
@@ -141,18 +149,38 @@ export function confidenceBonus(confidence: number): number {
   return (c - 1) / 2;
 }
 
-/** 멤버 한 명의 선택지 목록. 순위 요원 + "미배정". 요원 마스터에 없는 id는 건너뛴다. */
-function optionsFor(member: ComposeMember, agentById: Map<string, ComposeAgent>): Option[] {
+/** 요원의 역할군이 멤버 선호 역할군 몇 순위인지 (1~3, 없으면 null)와 그 가산점 */
+function roleMatch(member: ComposeMember, agentId: string | null, agentById: Map<string, ComposeAgent>): { roleRank: 1 | 2 | 3 | null; points: number } {
+  const agent = agentId ? agentById.get(agentId) : undefined;
+  if (!agent) return { roleRank: null, points: 0 };
+  const idx = member.rolePreference.slice(0, 3).indexOf(agent.roleGroup);
+  return idx < 0 ? { roleRank: null, points: 0 } : { roleRank: (idx + 1) as 1 | 2 | 3, points: ROLE_RANK_POINTS[idx] };
+}
+
+/**
+ * 멤버 한 명의 선택지 목록 + "미배정". 요원 마스터에 없는 id는 건너뛴다.
+ * - 맵 선호가 있으면 1~3순위 요원 (요원 점수 + 자신감 + 역할군 가산점)
+ * - 맵 선호가 없고 선호 역할군만 있으면 1순위 역할군 요원 몇 명을 후보로 (역할군 가산점만) — 그래야 역할군 규칙을
+ *   채울 수 있고, 어떤 요원인지는 사용자가 카드에서 바꾼다
+ */
+function optionsFor(member: ComposeMember, agentById: Map<string, ComposeAgent>, allAgents: ComposeAgent[]): Option[] {
   const out: Option[] = [];
-  if (member.pref) {
+  const hasAgentPref = Boolean(member.pref && member.pref.agentIds.some((id) => id && agentById.has(id)));
+  if (member.pref && hasAgentPref) {
     const bonus = confidenceBonus(member.pref.confidence);
     member.pref.agentIds.forEach((id, i) => {
       if (id && agentById.has(id)) {
-        out.push({ agentId: id, rank: (i + 1) as 1 | 2 | 3, points: RANK_POINTS[i] + bonus });
+        const rm = roleMatch(member, id, agentById);
+        out.push({ agentId: id, rank: (i + 1) as 1 | 2 | 3, roleRank: rm.roleRank, points: RANK_POINTS[i] + bonus + rm.points });
       }
     });
+  } else if (member.rolePreference.length) {
+    const top = member.rolePreference[0];
+    for (const a of allAgents.filter((x) => x.roleGroup === top).slice(0, ROLE_FALLBACK_AGENTS)) {
+      out.push({ agentId: a.id, rank: null, roleRank: 1, points: ROLE_RANK_POINTS[0] });
+    }
   }
-  out.push({ agentId: null, rank: null, points: 0 });
+  out.push({ agentId: null, rank: null, roleRank: null, points: 0 });
   return out;
 }
 
@@ -303,7 +331,8 @@ type TeamSearch = { best: Option[] | null; bestScore: number; bestAny: Option[] 
  * 점수 = 선호 점수 합 + (전술이 있으면) 슬롯 점수.
  */
 function searchTeam(team: ComposeMember[], agentById: Map<string, ComposeAgent>, rules: ComposeRules, tactics: ComposeTactic[]): TeamSearch {
-  const options = team.map((m) => optionsFor(m, agentById));
+  const allAgents = [...agentById.values()];
+  const options = team.map((m) => optionsFor(m, agentById, allAgents));
   const state: TeamSearch = { best: null, bestScore: -1, bestAny: null, bestAnyScore: -1 };
   const chosen: Option[] = [];
   const used = new Set<string>();
@@ -342,6 +371,7 @@ function toSlots(team: ComposeMember[], picked: Option[]): SlotAssignment[] {
     nickname: m.nickname,
     agentId: picked[i].agentId,
     rank: picked[i].rank,
+    roleRank: picked[i].roleRank,
     points: picked[i].points,
     attackPosition: m.pref?.attackPosition ?? "",
     defensePosition: m.pref?.defensePosition ?? "",
@@ -370,6 +400,8 @@ function describe(d: DescribeInput): { reasons: string[]; warnings: string[] } {
   if (firstPicks > 0) reasons.push(`1순위 요원 그대로 ${firstPicks}명`);
   const lower = d.slots.filter((s) => s.rank === 2 || s.rank === 3);
   if (lower.length) reasons.push(`${lower.map((s) => `${s.nickname} ${s.rank}순위`).join(", ")}`);
+  const roleHits = d.slots.filter((s) => s.roleRank !== null).length;
+  if (roleHits > 0) reasons.push(`선호 역할군 일치 ${roleHits}명`);
   reasons.push(ROLE_GROUPS.map((g) => `${ROLE_LABELS[g].ko} ${d.roleCount[g]}`).join(" · "));
 
   for (const f of d.tacticFits) {
@@ -384,7 +416,10 @@ function describe(d: DescribeInput): { reasons: string[]; warnings: string[] } {
   }
   for (const s of d.slots) {
     const m = d.members.find((x) => x.id === s.memberId);
-    if (!m?.pref) warnings.push(`${s.nickname}: 이 맵 선호 미입력 — 요원을 직접 정하세요`);
+    const hasAgentPref = Boolean(m?.pref?.agentIds.some(Boolean));
+    if (!hasAgentPref && s.agentId && s.roleRank) {
+      warnings.push(`${s.nickname}: 맵 선호 미입력 — 선호 역할군(${ROLE_LABELS[d.agentById.get(s.agentId)!.roleGroup].ko})으로 ${d.agentById.get(s.agentId)?.nameKo} 배정, 요원을 확인하세요`);
+    } else if (!hasAgentPref) warnings.push(`${s.nickname}: 이 맵 선호 미입력 — 요원을 직접 정하세요`);
     else if (!s.agentId) warnings.push(`${s.nickname}: 선호 요원이 모두 겹쳐 배정 못 함`);
     else if (s.rank === null) warnings.push(`${s.nickname}: 선호 밖 요원(${d.agentById.get(s.agentId)?.nameKo ?? s.agentId})`);
   }
@@ -450,7 +485,7 @@ export function composeSquads(input: ComposeInput): ComposeOutput {
 
   const compositions = teams.map((team) => {
     const found = searchTeam(team, agentById, rules, tactics);
-    const picked = found.best ?? found.bestAny ?? team.map(() => ({ agentId: null, rank: null, points: 0 }) as Option);
+    const picked = found.best ?? found.bestAny ?? team.map(() => ({ agentId: null, rank: null, roleRank: null, points: 0 }) as Option);
     return buildComposition(team, picked, found.best !== null, members, agentById, rules, tactics);
   });
 
@@ -477,10 +512,11 @@ export function evaluateAssignment(input: {
 
   const picked: Option[] = members.map((m) => {
     const agentId = input.assignment[m.id] ?? null;
-    if (!agentId || !agentById.has(agentId)) return { agentId: null, rank: null, points: 0 };
+    if (!agentId || !agentById.has(agentId)) return { agentId: null, rank: null, roleRank: null, points: 0 };
+    const rm = roleMatch(m, agentId, agentById);
     const rankIdx = m.pref ? m.pref.agentIds.indexOf(agentId) : -1;
-    if (rankIdx < 0) return { agentId, rank: null, points: 0 };
-    return { agentId, rank: (rankIdx + 1) as 1 | 2 | 3, points: RANK_POINTS[rankIdx] + confidenceBonus(m.pref!.confidence) };
+    if (rankIdx < 0) return { agentId, rank: null, roleRank: rm.roleRank, points: rm.points };
+    return { agentId, rank: (rankIdx + 1) as 1 | 2 | 3, roleRank: rm.roleRank, points: RANK_POINTS[rankIdx] + confidenceBonus(m.pref!.confidence) + rm.points };
   });
 
   const ids = picked.map((p) => p.agentId).filter((x): x is string => Boolean(x));

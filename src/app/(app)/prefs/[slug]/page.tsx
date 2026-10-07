@@ -8,6 +8,7 @@ import { getMapBySlug, getMyPreference, listActiveAgents, listMaps, listPreferen
 import { RoleDot } from "@/components/role-dot";
 import { MyPreferenceForm } from "./my-preference-form";
 import { SensitivityForm } from "./sensitivity-form";
+import { RolePreferenceForm } from "./role-preference-form";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,7 @@ export default async function PrefsMapPage({ params }: Props) {
             <thead className="bg-base text-xs text-secondary">
               <tr>
                 <th className="px-4 py-2.5 text-left font-normal">멤버</th>
+                <th className="px-3 py-2.5 text-left font-normal">선호 역할군</th>
                 <th className="px-3 py-2.5 text-left font-normal">1순위</th>
                 <th className="px-3 py-2.5 text-left font-normal">2순위</th>
                 <th className="px-3 py-2.5 text-left font-normal">3순위</th>
@@ -120,6 +122,20 @@ export default async function PrefsMapPage({ params }: Props) {
                         {member.nickname}
                         {isMe ? <span className="text-[10px] text-accent">나</span> : null}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {member.rolePreference.length ? (
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          {member.rolePreference.slice(0, 3).map((g, i) => (
+                            <span key={g} className="inline-flex items-center gap-1" style={{ color: ROLE_LABELS[g].cssVar }}>
+                              {i > 0 ? <span className="text-muted">›</span> : null}
+                              {ROLE_LABELS[g].ko}
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                     {pref ? (
                       <>
@@ -221,6 +237,9 @@ export default async function PrefsMapPage({ params }: Props) {
                 : null
             }
           />
+          <div className="border-t border-line pt-4">
+            <RolePreferenceForm initial={me.rolePreference} />
+          </div>
           <div className="border-t border-line pt-4">
             <SensitivityForm dpi={me.dpi} sens={me.sens} />
           </div>
