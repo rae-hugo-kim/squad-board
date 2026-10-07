@@ -22,7 +22,7 @@ await page.waitForLoadState("networkidle");
 await page.fill("#passcode", ADMIN_PASS);
 await page.click("label:has-text('Rae')");
 await page.click("button[type=submit]");
-await page.waitForURL(`${BASE}/prefs/**`);
+await page.waitForURL(`${BASE}/`);
 
 await page.goto(`${BASE}/tools`);
 await page.waitForLoadState("networkidle");
@@ -65,7 +65,7 @@ await page.waitForSelector("button:has-text('테스트 시작')");
 check(true, "중단 → 대기 상태");
 
 // 외부 링크
-check((await page.locator("a[target=_blank]:has-text('Easy Lineup')").count()) >= 1, "외부 링크 Easy Lineup");
+check((await page.locator("a[target=_blank]:has-text('Lineups Valorant')").count()) >= 1, "외부 링크 Lineups Valorant");
 check((await page.locator("a[target=_blank]:has-text('Valoplant')").count()) >= 1, "외부 링크 Valoplant");
 
 check(errors.length === 0, `브라우저 콘솔 에러 없음 (${errors.length})`);

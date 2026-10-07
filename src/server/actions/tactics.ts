@@ -23,12 +23,14 @@ import {
 } from "@/db/schema";
 import { requireMember } from "@/lib/auth";
 import { createLogger, errorMeta } from "@/lib/logger";
+import { canEditTactic, canManageSharedTactics, EDIT_DENIED_MESSAGE, SHARED_DENIED_MESSAGE } from "@/lib/tactics/permissions";
 import { LAYER_HUES, MAX_OBJECTS_PER_STAGE, MAX_PATH_POINTS, MAX_STAGES } from "@/lib/tactics/types";
 import type { ActionResult } from "./auth";
 
 /**
  * 전술 보드 서버 액션 (3단계).
- * 권한(기획서 4절 표): 열람·복제는 모든 멤버, 수정·삭제는 작성자와 관리자.
+ * 권한(기획서 4절 표 + 전술가 티어): 열람·복제는 모든 멤버, 수정·삭제는 작성자와 관리자, 공통 전술은 전술가도.
+ * 판정은 src/lib/tactics/permissions.ts 의 순수 함수 하나로 모아 화면과 액션이 어긋나지 않게 한다.
  * 보드 저장은 "단계의 객체 목록을 통째로 교체"한다 — 객체 단위 CRUD보다 단순하고,
  * 마지막 저장이 이기는(last-write-wins) 기획서 전제와 맞는다.
  */
@@ -63,17 +65,24 @@ async function revalidateTactic(tactic: Pick<Tactic, "id" | "mapId">) {
   if (map) revalidatePath(`/tactics/${map.slug}`);
   revalidatePath(`/tactics/board/${tactic.id}`);
   revalidatePath("/squad");
+  // 랜딩의 "오늘의 스쿼드"는 맵별 공통 전술 수를 보여주므로 함께 갱신한다
+  revalidatePath("/");
 }
 
 type Editable = { error: string; tactic?: undefined } | { error?: undefined; tactic: Tactic };
 
-/** 작성자 또는 관리자만 통과. */
+/** 작성자·관리자(공통 전술은 전술가 포함)만 통과. */
 async function loadEditableTactic(tacticId: string, me: Member): Promise<Editable> {
   const tactic = await db.select().from(tactics).where(eq(tactics.id, tacticId)).get();
   if (!tactic) return { error: "전술을 찾을 수 없습니다" };
-  if (tactic.authorId !== me.id && me.role !== "admin") return { error: "작성자와 관리자만 수정할 수 있습니다" };
+  if (!canEditTactic(tactic, me)) return { error: EDIT_DENIED_MESSAGE };
   return { tactic };
 }
+
+/** 체크박스 값("on"/"1"/"true") → boolean. 체크 안 하면 FormData에 키가 없으므로 null도 false. */
+const checkboxSchema = z.preprocess((v) => v === "on" || v === "1" || v === "true" || v === true, z.boolean());
+/** 우선도: 빈 문자열/누락 = 0(미지정), 1~20. */
+const prioritySchema = z.preprocess((v) => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number().int().min(0).max(20, "우선도는 1~20 사이로 적어주세요"));
 
 // ---------------------------------------------------------------------------
 // 생성 · 메타 수정 · 삭제 · 복제
@@ -84,6 +93,8 @@ const createSchema = z.object({
   side: z.enum(TACTIC_SIDES),
   roundType: z.enum(ROUND_TYPES),
   tags: tagsSchema,
+  isShared: checkboxSchema,
+  priority: prioritySchema,
 });
 
 export async function createTacticAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -94,9 +105,13 @@ export async function createTacticAction(_prev: ActionResult | null, formData: F
     side: formData.get("side"),
     roundType: formData.get("roundType") ?? "any",
     tags: formData.get("tags") ?? "",
+    isShared: formData.get("isShared"),
+    priority: formData.get("priority"),
   });
   if (!parsed.success) return { ok: false, error: "입력을 확인하세요", fieldErrors: fieldErrorsOf(parsed.error) };
   const v = parsed.data;
+  // 공통 전술·우선도는 전술가 이상만. 화면에서 숨겨도 서버에서 다시 막는다.
+  if ((v.isShared || v.priority > 0) && !canManageSharedTactics(me)) return { ok: false, error: SHARED_DENIED_MESSAGE };
   const id = randomUUID();
   let slug: string;
   try {
@@ -107,17 +122,18 @@ export async function createTacticAction(_prev: ActionResult | null, formData: F
     const existing = await db.select({ id: tactics.id }).from(tactics).where(eq(tactics.mapId, v.mapId));
     const layerHue = (existing.length % LAYER_HUES.length) + 1;
     await db.batch([
-      db.insert(tactics).values({ id, mapId: v.mapId, name: v.name, side: v.side, roundType: v.roundType, tags: v.tags, authorId: me.id, layerHue }),
+      db.insert(tactics).values({ id, mapId: v.mapId, name: v.name, side: v.side, roundType: v.roundType, tags: v.tags, authorId: me.id, layerHue, isShared: v.isShared, priority: v.isShared ? v.priority : 0 }),
       db.insert(tacticStages).values({ id: randomUUID(), tacticId: id, seq: 1, name: "셋업" }),
       // 슬롯 5개를 비어 있는 채로 만들어 두어 편집 화면에서 바로 역할을 채우게 한다
       db.insert(tacticSlots).values([1, 2, 3, 4, 5].map((slotNo) => ({ id: randomUUID(), tacticId: id, slotNo }))),
     ]);
-    log.info("tactic created", { tacticId: id, by: me.id, mapId: v.mapId });
+    log.info("tactic created", { tacticId: id, by: me.id, mapId: v.mapId, isShared: v.isShared, priority: v.priority });
   } catch (err) {
     log.error("create tactic failed", errorMeta(err));
     return { ok: false, error: "전술 생성 중 오류가 났습니다" };
   }
   revalidatePath(`/tactics/${slug}`);
+  revalidatePath("/");
   redirect(`/tactics/board/${id}`);
 }
 
@@ -131,15 +147,21 @@ export async function updateTacticMetaAction(_prev: ActionResult | null, formDat
     side: formData.get("side"),
     roundType: formData.get("roundType") ?? "any",
     tags: formData.get("tags") ?? "",
+    isShared: formData.get("isShared"),
+    priority: formData.get("priority"),
   });
   if (!parsed.success) return { ok: false, error: "입력을 확인하세요", fieldErrors: fieldErrorsOf(parsed.error) };
   const v = parsed.data;
   try {
     const loaded = await loadEditableTactic(v.tacticId, me);
     if (loaded.error !== undefined) return { ok: false, error: loaded.error };
+    // 공통 여부·우선도를 바꾸는 것은 전술가 이상만. 일반 멤버(작성자)는 기존 값을 유지한다.
+    const manage = canManageSharedTactics(me);
+    const isShared = manage ? v.isShared : loaded.tactic.isShared;
+    const priority = manage ? (isShared ? v.priority : 0) : loaded.tactic.priority;
     await db
       .update(tactics)
-      .set({ name: v.name, side: v.side, roundType: v.roundType, tags: v.tags, updatedAt: new Date().toISOString() })
+      .set({ name: v.name, side: v.side, roundType: v.roundType, tags: v.tags, isShared, priority, updatedAt: new Date().toISOString() })
       .where(eq(tactics.id, v.tacticId));
     await revalidateTactic(loaded.tactic);
     return { ok: true };
@@ -164,7 +186,7 @@ export async function deleteTacticAction(formData: FormData): Promise<void> {
   redirect(map ? `/tactics/${map.slug}` : "/tactics");
 }
 
-/** 복제 — 누구나 "내 버전으로 고쳐보기" (기획서 4절 권한 표). 작성자는 복제한 사람. */
+/** 복제 — 누구나 "내 버전으로 고쳐보기" (기획서 4절 권한 표). 작성자는 복제한 사람. 복제본은 항상 개인 전술(isShared=false). */
 export async function duplicateTacticAction(formData: FormData): Promise<void> {
   const me = await requireMember();
   const tacticId = idSchema.parse(formData.get("tacticId"));
@@ -226,6 +248,8 @@ export async function duplicateTacticAction(formData: FormData): Promise<void> {
       tags: src.tags,
       authorId: me.id,
       layerHue: (existing.length % LAYER_HUES.length) + 1,
+      isShared: false,
+      priority: 0,
       createdAt: now,
       updatedAt: now,
     }),

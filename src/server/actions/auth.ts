@@ -74,7 +74,8 @@ export async function loginAction(_prev: ActionResult | null, formData: FormData
   }
 
   // 열린 리다이렉트 방지: 내부 경로("/...")만 허용, "//evil.com" 같은 값은 거부
-  const target = next && next.startsWith("/") && !next.startsWith("//") ? next : "/prefs";
+  // 기본 착지는 랜딩("오늘의 스쿼드"). 로그인 전에 가려던 곳이 있으면 그리로.
+  const target = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
   redirect(target);
 }
 

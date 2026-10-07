@@ -1,9 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import type { MemberRole } from "@/db/schema";
+import { MEMBER_ROLE_LABELS } from "@/lib/members/roles";
 import { loginAction, type ActionResult } from "@/server/actions/auth";
 
-type MemberOption = { id: string; nickname: string; color: string; role: "admin" | "member" };
+type MemberOption = { id: string; nickname: string; color: string; role: MemberRole };
 
 /**
  * 입장 폼 (클라이언트 컴포넌트).
@@ -74,7 +76,7 @@ export function LoginForm({ members, next }: { members: MemberOption[]; next?: s
                     {m.nickname.slice(0, 1).toUpperCase()}
                   </span>
                   <span className="truncate">{m.nickname}</span>
-                  {m.role === "admin" ? <span className="ml-auto font-mono text-[10px] text-muted">admin</span> : null}
+                  {m.role !== "member" ? <span className="ml-auto font-mono text-[10px] text-muted">{MEMBER_ROLE_LABELS[m.role].short}</span> : null}
                 </label>
               );
             })}

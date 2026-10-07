@@ -38,7 +38,7 @@ async function login(nickname) {
   await page.fill("#passcode", passFor(nickname));
   await page.click(`label:has-text('${nickname}')`);
   await page.click("button[type=submit]");
-  await page.waitForURL(`${BASE}/prefs/**`);
+  await page.waitForURL(`${BASE}/`);
 }
 /** 보드 SVG 위의 (fx, fy) 비율 위치를 클릭 */
 async function boardPoint(fx, fy) {
@@ -87,7 +87,7 @@ check((await objectCount()) === 1, "연막 핑 추가");
 check((await page.locator("aside span.font-bold:has-text('연막')").count()) === 1, "속성 패널에 '연막' 표시");
 await page.locator("aside select").nth(0).selectOption({ label: "오멘" }); // 시전 요원
 await page.locator("aside select").nth(1).selectOption({ index: 1 }); // 첫 스킬
-await page.fill("aside input[placeholder='https://']", "https://easylineup.gg/");
+await page.fill("aside input[placeholder='https://']", "https://lineupsvalorant.com/");
 check((await page.locator("a:has-text('라인업 링크 열기')").count()) === 1, "외부 라인업 링크 표시");
 
 // 요원 토큰 (슬롯 1, 아군) — 요원 미정 슬롯 토큰

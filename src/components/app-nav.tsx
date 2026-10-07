@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { MemberRole } from "@/db/schema";
+import { MEMBER_ROLE_LABELS } from "@/lib/members/roles";
 import { logoutAction } from "@/server/actions/auth";
 
-type Me = { nickname: string; color: string; role: "admin" | "member" };
+type Me = { nickname: string; color: string; role: MemberRole };
 
 /**
  * 상단 네비게이션. 구현이 끝난 단계(CURRENT_STAGE 이하)만 활성이고,
@@ -13,6 +15,7 @@ type Me = { nickname: string; color: string; role: "admin" | "member" };
 const CURRENT_STAGE = 4;
 
 const NAV: Array<{ href: string; label: string; stage: number; adminOnly?: boolean }> = [
+  { href: "/", label: "오늘의 스쿼드", stage: 1 },
   { href: "/prefs", label: "멤버 선호", stage: 1 },
   { href: "/squad", label: "스쿼드 편성", stage: 2 },
   { href: "/sessions", label: "세션 기록", stage: 2 },
@@ -26,7 +29,7 @@ export function AppNav({ me }: { me: Me }) {
   return (
     <header className="border-b border-line bg-base">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4 sm:px-6">
-        <Link href="/prefs" className="flex items-center gap-2.5 no-underline">
+        <Link href="/" className="flex items-center gap-2.5 no-underline">
           <span
             className="block h-5 w-5 bg-accent"
             style={{ clipPath: "polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)" }}
@@ -37,7 +40,8 @@ export function AppNav({ me }: { me: Me }) {
 
         <nav className="flex flex-1 items-center gap-1 overflow-x-auto text-sm font-medium" aria-label="주요 메뉴">
           {NAV.filter((n) => !n.adminOnly || me.role === "admin").map((n) => {
-            const active = pathname === n.href || pathname.startsWith(`${n.href}/`);
+            // "/"는 접두사 판정을 하면 모든 경로에 걸리므로 정확히 일치할 때만 활성
+            const active = n.href === "/" ? pathname === "/" : pathname === n.href || pathname.startsWith(`${n.href}/`);
             const enabled = n.stage <= CURRENT_STAGE;
             if (!enabled) {
               return (
@@ -74,7 +78,7 @@ export function AppNav({ me }: { me: Me }) {
             {me.nickname.slice(0, 1).toUpperCase()}
           </span>
           <span className="hidden text-sm font-medium sm:inline">{me.nickname}</span>
-          {me.role === "admin" ? <span className="font-mono text-[11px] text-muted">admin</span> : null}
+          {me.role !== "member" ? <span className="font-mono text-[11px] text-muted">{MEMBER_ROLE_LABELS[me.role].short}</span> : null}
           <form action={logoutAction}>
             <button type="submit" className="ml-2 min-h-11 px-2 text-xs text-secondary hover:text-primary">
               나가기

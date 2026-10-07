@@ -30,10 +30,10 @@ export async function requireMember(): Promise<Member> {
   return m;
 }
 
-/** 관리자 전용. 일반 멤버는 메인으로 돌려보낸다. */
+/** 관리자 전용. 일반 멤버·전술가는 랜딩으로 돌려보낸다. */
 export async function requireAdmin(): Promise<Member> {
   const m = await requireMember();
-  if (m.role !== "admin") redirect("/prefs");
+  if (m.role !== "admin") redirect("/");
   return m;
 }
 

@@ -5,14 +5,21 @@ import type { RoundType, TacticSide } from "@/db/schema";
 import { ROUND_TYPE_LABELS, ROUND_TYPE_ORDER, TACTIC_SIDE_LABELS, TACTIC_SIDE_ORDER } from "@/lib/tactics/types";
 import { createTacticAction } from "@/server/actions/tactics";
 import type { ActionResult } from "@/server/actions/auth";
+import { SharedTacticFields } from "@/components/tactic-board/shared-tactic-fields";
 
-/** 새 전술 생성. 성공하면 서버 액션이 보드 편집기로 리다이렉트한다. */
-export function NewTacticForm({ mapId }: { mapId: string }) {
+/**
+ * 새 전술 생성. 성공하면 서버 액션이 보드 편집기로 리다이렉트한다.
+ * canManageShared(전술가·관리자)일 때만 "공통 전술" 체크와 우선도 입력이 보인다 — 서버도 같은 권한을 다시 확인한다.
+ */
+export function NewTacticForm({ mapId, canManageShared }: { mapId: string; canManageShared: boolean }) {
   const [result, formAction, pending] = useActionState<ActionResult | null, FormData>(createTacticAction, null);
   const [name, setName] = useState("");
   const [side, setSide] = useState<TacticSide>("attack");
   const [roundType, setRoundType] = useState<RoundType>("any");
   const [tags, setTags] = useState("");
+  // 공통 전술은 명시적 선택 — 관리자·전술가라도 기본은 개인 전술 (실험용 전술이 오늘의 스쿼드 후보에 섞이지 않도록)
+  const [isShared, setIsShared] = useState(false);
+  const [priority, setPriority] = useState("");
   const fieldError = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
   return (
     <form action={formAction} className="card flex flex-col gap-3 p-5">
@@ -49,6 +56,7 @@ export function NewTacticForm({ mapId }: { mapId: string }) {
         <span className="label">태그 (쉼표로 구분, 최대 8개)</span>
         <input name="tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="러시, 포스트플랜트" className="input" />
       </label>
+      {canManageShared ? <SharedTacticFields isShared={isShared} onShared={setIsShared} priority={priority} onPriority={setPriority} error={fieldError("priority")} /> : null}
       {result && !result.ok && !result.fieldErrors ? <p className="text-xs text-accent-hover">{result.error}</p> : null}
       <button type="submit" className="btn-primary" disabled={pending || !name.trim()}>
         {pending ? "만드는 중…" : "전술 만들기 → 보드 열기"}

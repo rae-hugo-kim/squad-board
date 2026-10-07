@@ -5,10 +5,12 @@ import {
   evaluateAssignment,
   DEFAULT_RULES,
   MAX_PARTICIPANTS,
+  tacticFeasibility,
   type ComposeAgent,
   type ComposeMember,
   type ComposeTactic,
 } from "./compose";
+import { chooseTodayTactic } from "./today";
 
 /**
  * 편성기 단위 테스트 — 기획서 5절(제약 → 점수 → 상위 3개)을 고정한다.
@@ -386,4 +388,71 @@ test("evaluateAssignment도 선호 역할군 가산점을 같은 기준으로 �
   assert.equal(by.b.points, 1.5);
   assert.equal(by.b.rank, null);
   assert.equal(by.b.roleRank, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 실행 가능성(포기) 판정 — 우선도와 무관하게 참가자 요원 폭으로 못 채우는 전술은 포기한다
+// ---------------------------------------------------------------------------
+test("tacticFeasibility: 슬롯을 맡을 멤버가 한 명도 없으면 불가이고 그 슬롯을 사유로 적는다", () => {
+  const members = [member("a", ["jett", null, null]), member("b", ["raze", null, null]), member("c", ["sova", null, null]), member("d", ["cypher", null, null]), member("e", ["reyna", null, null])];
+  const t = tactic("needs-smoke", [{ slotNo: 1, roleGroup: "controller", description: "A 연막" }, { slotNo: 2, roleGroup: "duelist" }]);
+  const r = tacticFeasibility(t, members, agents);
+  assert.equal(r.feasible, false);
+  assert.ok(r.reasons.some((x) => x.includes("슬롯 1") && x.includes("A 연막") && x.includes("없음")), r.reasons.join(" | "));
+});
+
+test("tacticFeasibility: 후보는 있지만 요원이 겹쳐 동시에 못 채우면 불가", () => {
+  // a·b 둘 다 오멘만 낼 수 있고, 전략가 슬롯이 둘 → 한 명은 오멘을 못 받는다
+  const members = [member("a", ["omen", null, null]), member("b", ["omen", null, null]), member("c", ["sova", null, null])];
+  const t = tactic("double", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "controller" }]);
+  const r = tacticFeasibility(t, members, agents);
+  assert.equal(r.feasible, false);
+  assert.ok(r.reasons.some((x) => x.includes("겹침")), r.reasons.join(" | "));
+  // b가 브림스톤도 낼 수 있으면 가능
+  const ok = tacticFeasibility(t, [member("a", ["omen", null, null]), member("b", ["omen", "brimstone", null]), member("c", ["sova", null, null])], agents);
+  assert.equal(ok.feasible, true);
+});
+
+test("tacticFeasibility: 특정 요원 슬롯·고정 멤버·선호 역할군 후보를 반영하고, 미설정 슬롯만 있으면 항상 가능", () => {
+  const members = [member("a", ["jett", null, null]), member("b", null, 3, ["controller"]), member("c", ["sova", null, null])];
+  // b는 맵 선호가 없지만 전략가 선호 → 전략가 요원 후보로 슬롯을 채울 수 있다
+  assert.equal(tacticFeasibility(tactic("t", [{ slotNo: 1, roleGroup: "controller" }]), members, agents).feasible, true);
+  // 특정 요원(sova)은 c만 가능. 고정 멤버가 a면 a는 sova를 못 내므로 불가
+  assert.equal(tacticFeasibility(tactic("t", [{ slotNo: 1, agentId: "sova" }]), members, agents).feasible, true);
+  assert.equal(tacticFeasibility(tactic("t", [{ slotNo: 1, agentId: "sova", fixedMemberId: "a" }]), members, agents).feasible, false);
+  assert.equal(tacticFeasibility(tactic("t", [{ slotNo: 1 }, { slotNo: 2 }]), members, agents).feasible, true, "미설정 슬롯뿐이면 가능");
+  // 같은 특정 요원을 두 슬롯이 요구하면 불가
+  const dup = tacticFeasibility(tactic("t", [{ slotNo: 1, agentId: "sova" }, { slotNo: 2, agentId: "sova" }]), members, agents);
+  assert.equal(dup.feasible, false);
+});
+
+test("composeSquads의 tacticFits에 feasible이 붙고, 불가면 '포기 권고' 경고가 난다", () => {
+  const members = [member("a", ["jett", null, null]), member("b", ["raze", null, null]), member("c", ["sova", null, null]), member("d", ["cypher", null, null]), member("e", ["omen", null, null])];
+  const ok = tactic("ok", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "initiator" }]);
+  const bad = tactic("bad", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "controller", description: "B 연막" }]);
+  const top = composeSquads({ members, agents, tactics: [ok, bad] }).compositions[0];
+  const byId = Object.fromEntries(top.tacticFits.map((f) => [f.tacticId, f]));
+  assert.equal(byId.ok.feasible, true);
+  assert.equal(byId.bad.feasible, false);
+  assert.ok(top.warnings.some((w) => w.includes("BAD") && w.includes("포기")), top.warnings.join(" | "));
+  const ev = evaluateAssignment({ members, agents, tactics: [bad], assignment: { a: "jett", b: "raze", c: "sova", d: "cypher", e: "omen" } });
+  assert.equal(ev.tacticFits[0].feasible, false);
+});
+
+test("chooseTodayTactic: 우선도 순으로 보되 실행 불가 전술은 건너뛰고(포기), 전부 불가면 1위를 포기 권고로 돌려준다", () => {
+  const members = [member("a", ["jett", null, null]), member("b", ["raze", null, null]), member("c", ["sova", null, null]), member("d", ["cypher", null, null]), member("e", ["omen", null, null])];
+  const p1 = { ...tactic("p1", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "controller" }]), priority: 1 };
+  const p2 = { ...tactic("p2", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "duelist" }]), priority: 2 };
+  const pick = chooseTodayTactic({ tactics: [p1, p2], members, agents });
+  assert.ok(pick);
+  assert.equal(pick!.tactic.id, "p2", "1순위는 전략가 2명을 못 채워 포기 → 2순위");
+  assert.equal(pick!.feasible, true);
+  assert.equal(pick!.skipped.length, 1);
+  assert.equal(pick!.skipped[0].tactic.id, "p1");
+  assert.equal(pick!.composition.tacticFits[0].bindings[1], "e");
+
+  const none = chooseTodayTactic({ tactics: [p1], members, agents });
+  assert.equal(none!.feasible, false);
+  assert.equal(none!.tactic.id, "p1");
+  assert.equal(chooseTodayTactic({ tactics: [], members, agents }), null);
 });
