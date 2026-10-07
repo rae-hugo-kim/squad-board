@@ -13,8 +13,10 @@ import {
   members,
   sessionMatches,
   sessionMatchPlayers,
+  sessionMatchTactics,
   sessionParticipants,
   sessions,
+  tactics,
   type Member,
   type SessionMatch,
 } from "@/db/schema";
@@ -109,12 +111,18 @@ const slotSchema = z.object({
   agentId: idSchema.nullable(),
   position: z.string().trim().max(120).default(""),
 });
+/** 전술 바인딩 {슬롯번호: 멤버id} — 편성 카드가 계산한 값을 그대로 스냅샷으로 남긴다 */
+const tacticBindingSchema = z.object({
+  tacticId: idSchema,
+  bindings: z.record(z.string().regex(/^[1-5]$/), idSchema).default({}),
+});
 const fromSquadSchema = z
   .object({
     date: dateSchema,
     mapId: idSchema,
     slots: z.array(slotSchema).min(1, "슬롯이 비어 있습니다").max(TEAM_SIZE, `한 경기 출전은 최대 ${TEAM_SIZE}명입니다`),
     bench: z.array(idSchema).default([]),
+    tactics: z.array(tacticBindingSchema).max(10).default([]),
   })
   .superRefine((v, ctx) => {
     const agentIds = v.slots.map((s) => s.agentId).filter((x): x is string => Boolean(x));
@@ -139,6 +147,7 @@ export async function createSessionFromSquadAction(_prev: ActionResult | null, f
     mapId: formData.get("mapId"),
     slots: parseJsonField(formData.get("slots")),
     bench: parseJsonField(formData.get("bench")) ?? [],
+    tactics: parseJsonField(formData.get("tactics")) ?? [],
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "입력을 확인하세요", fieldErrors: fieldErrorsOf(parsed.error) };
   const v = parsed.data;
@@ -155,6 +164,12 @@ export async function createSessionFromSquadAction(_prev: ActionResult | null, f
     if (!map) return { ok: false, error: "맵을 찾을 수 없습니다" };
     const agentIds = new Set(agentRows.map((a) => a.id));
     if (v.slots.some((s) => s.agentId && !agentIds.has(s.agentId))) return { ok: false, error: "알 수 없는 요원이 있습니다" };
+    // 전술은 같은 맵의 것만 기록한다 (다른 맵 전술 id가 섞여 오면 조용히 버리지 않고 거부)
+    const tacticIds = [...new Set(v.tactics.map((t) => t.tacticId))];
+    if (tacticIds.length) {
+      const found = await db.select({ id: tactics.id }).from(tactics).where(and(inArray(tactics.id, tacticIds), eq(tactics.mapId, v.mapId)));
+      if (found.length !== tacticIds.length) return { ok: false, error: "이 맵의 전술이 아닌 항목이 있습니다" };
+    }
 
     const matchId = randomUUID();
     await insertSession(sessionId, v.date, "", me.id, allIds);
@@ -163,6 +178,9 @@ export async function createSessionFromSquadAction(_prev: ActionResult | null, f
       db.insert(sessionMatchPlayers).values(
         v.slots.map((s) => ({ id: randomUUID(), matchId, memberId: s.memberId, agentId: s.agentId, position: s.position })),
       ),
+      ...(tacticIds.length
+        ? [db.insert(sessionMatchTactics).values(v.tactics.map((t) => ({ matchId, tacticId: t.tacticId, slotBindings: t.bindings })))]
+        : []),
     ]);
     log.info("session created from squad", { sessionId, matchId, by: me.id, slots: v.slots.length, bench: v.bench.length });
   } catch (err) {
@@ -301,6 +319,8 @@ const updateMatchSchema = z
     scoreEnemy: scoreSchema,
     memo: memoSchema,
     players: z.array(playerUpdateSchema),
+    /** 사용한 전술 (기획서 6절 입력 2 "사용한 전술 선택"). 기존 바인딩은 유지하고 목록만 맞춘다. */
+    tacticIds: z.array(idSchema).max(10).default([]),
   })
   .superRefine((v, ctx) => {
     const ids = v.players.map((p) => p.agentId).filter((x): x is string => Boolean(x));
@@ -341,15 +361,25 @@ export async function updateMatchAction(_prev: ActionResult | null, formData: Fo
     scoreEnemy: emptyToNull(formData.get("scoreEnemy")),
     memo: formData.get("memo") ?? "",
     players: collectPlayers(formData),
+    tacticIds: formData.getAll("tacticIds"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "입력을 확인하세요", fieldErrors: fieldErrorsOf(parsed.error) };
   const v = parsed.data;
   try {
     const loaded = await loadEditableMatch(v.matchId, me);
     if (loaded.error !== undefined) return { ok: false, error: loaded.error };
-    const existing = await db.select({ id: sessionMatchPlayers.id }).from(sessionMatchPlayers).where(eq(sessionMatchPlayers.matchId, v.matchId));
+    const [existing, existingTactics] = await Promise.all([
+      db.select({ id: sessionMatchPlayers.id }).from(sessionMatchPlayers).where(eq(sessionMatchPlayers.matchId, v.matchId)),
+      db.select().from(sessionMatchTactics).where(eq(sessionMatchTactics.matchId, v.matchId)),
+    ]);
     const existingIds = new Set(existing.map((p) => p.id));
     if (v.players.some((p) => !existingIds.has(p.playerId))) return { ok: false, error: "경기에 없는 멤버 행이 포함되어 있습니다" };
+    const wanted = [...new Set(v.tacticIds)];
+    if (wanted.length) {
+      const found = await db.select({ id: tactics.id }).from(tactics).where(and(inArray(tactics.id, wanted), eq(tactics.mapId, loaded.match.mapId)));
+      if (found.length !== wanted.length) return { ok: false, error: "이 맵의 전술이 아닌 항목이 있습니다" };
+    }
+    const keepBindings = new Map(existingTactics.map((t) => [t.tacticId, t.slotBindings]));
 
     const now = new Date().toISOString();
     await db.batch([
@@ -357,6 +387,10 @@ export async function updateMatchAction(_prev: ActionResult | null, formData: Fo
         .update(sessionMatches)
         .set({ result: v.result, scoreAlly: v.scoreAlly, scoreEnemy: v.scoreEnemy, memo: v.memo, updatedAt: now })
         .where(eq(sessionMatches.id, v.matchId)),
+      db.delete(sessionMatchTactics).where(eq(sessionMatchTactics.matchId, v.matchId)),
+      ...(wanted.length
+        ? [db.insert(sessionMatchTactics).values(wanted.map((tacticId) => ({ matchId: v.matchId, tacticId, slotBindings: keepBindings.get(tacticId) ?? {} })))]
+        : []),
       ...v.players.map((p) =>
         db
           .update(sessionMatchPlayers)

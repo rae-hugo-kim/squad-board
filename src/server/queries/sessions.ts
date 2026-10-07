@@ -7,8 +7,10 @@ import {
   members,
   sessionMatches,
   sessionMatchPlayers,
+  sessionMatchTactics,
   sessionParticipants,
   sessions,
+  tactics,
   type Agent,
   type GameMap,
   type MatchResult,
@@ -37,7 +39,8 @@ export type SessionSummary = {
 };
 
 export type MatchPlayerRow = SessionMatchPlayer & { member: MemberLite; agent: Agent | null };
-export type MatchRow = SessionMatch & { map: GameMap; players: MatchPlayerRow[] };
+export type MatchTacticRow = { tacticId: string; name: string; slotBindings: Record<string, string> };
+export type MatchRow = SessionMatch & { map: GameMap; players: MatchPlayerRow[]; tactics: MatchTacticRow[] };
 
 export type SessionDetail = {
   session: Session;
@@ -103,9 +106,16 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
     db.select().from(agents),
   ]);
   const matchIds = matchRows.map((m) => m.id);
-  const playerRows = matchIds.length
-    ? await db.select().from(sessionMatchPlayers).where(inArray(sessionMatchPlayers.matchId, matchIds))
-    : [];
+  const [playerRows, tacticLinks] = matchIds.length
+    ? await Promise.all([
+        db.select().from(sessionMatchPlayers).where(inArray(sessionMatchPlayers.matchId, matchIds)),
+        db
+          .select({ matchId: sessionMatchTactics.matchId, tacticId: sessionMatchTactics.tacticId, slotBindings: sessionMatchTactics.slotBindings, name: tactics.name })
+          .from(sessionMatchTactics)
+          .innerJoin(tactics, eq(tactics.id, sessionMatchTactics.tacticId))
+          .where(inArray(sessionMatchTactics.matchId, matchIds)),
+      ])
+    : [[], []];
 
   // 참가자 + (혹시 참가자 목록에서 빠졌지만 경기엔 있는) 멤버까지 한 번에 읽는다.
   const memberIds = [...new Set([...partRows.map((p) => p.memberId), ...playerRows.map((p) => p.memberId)])];
@@ -129,7 +139,8 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
         agent: p.agentId ? (agentById.get(p.agentId) ?? null) : null,
       }))
       .sort((a, b) => a.member.nickname.localeCompare(b.member.nickname));
-    return [{ ...m, map, players }];
+    const matchTactics = tacticLinks.filter((t) => t.matchId === m.id).map((t) => ({ tacticId: t.tacticId, name: t.name, slotBindings: t.slotBindings }));
+    return [{ ...m, map, players, tactics: matchTactics }];
   });
 
   return { session, participants, matches };

@@ -20,7 +20,11 @@ const ROLE_GROUPS = Object.keys(ROLE_LABELS) as RoleGroup[];
  *      규칙을 무시한 최고 점수 배정을 경고와 함께 돌려준다 — 빈 결과보다 "왜 안 되는지"가 유용하다.
  *   4. 조합 전체를 (규칙 충족 → 점수 → 미배정 수 → 벤치 이름) 순으로 정렬해 상위 limit개.
  *
- * 규모: 참가자 ≤ 10, 선택지 ≤ 4 → 조합 252 × 배정 ≤ 4^5 = 1024 → 약 26만 번 평가. 서버에서 수십 ms.
+ * 전술 슬롯(3단계): 선택한 전술마다 슬롯(요구 역할군/요원) ↔ 멤버 최적 매칭을 비트마스크 DP로 구해
+ *   채운 슬롯당 +2, 슬롯의 포지션 힌트가 멤버 선호 포지션에 들어 있으면 +1을 더한다.
+ *
+ * 규모: 참가자 ≤ 10, 선택지 ≤ 4 → 조합 252 × 배정 ≤ 4^5 = 1024 → 약 26만 번 평가. 전술 1개당 평가마다
+ *   슬롯 DP 5×32×5 = 800번 → 10명·전술 1개가 약 2억 연산으로 1초 안팎. 소모임 규모에서는 충분하다.
  */
 
 export const TEAM_SIZE = 5;
@@ -29,6 +33,9 @@ export const MAX_PARTICIPANTS = 10;
 
 /** 선호 순위별 점수 (기획서 5절 표). index 0 = 1순위. */
 export const RANK_POINTS = [3, 2, 1] as const;
+/** 전술 슬롯 1개 충족 +2, 포지션 힌트 일치 +1 */
+export const SLOT_POINTS = 2;
+export const POSITION_POINTS = 1;
 
 export type ComposeAgent = { id: string; nameKo: string; roleGroup: RoleGroup };
 
@@ -47,6 +54,17 @@ export type ComposeMember = {
   /** 이 맵의 선호. 미입력이면 null → 요원 없이 0점으로 참가. */
   pref: ComposePreference | null;
 };
+
+export type ComposeSlot = {
+  slotNo: number;
+  roleGroup: RoleGroup | null;
+  agentId: string | null;
+  description: string;
+  positionHint: string;
+  fixedMemberId: string | null;
+};
+
+export type ComposeTactic = { id: string; name: string; slots: ComposeSlot[] };
 
 export type ComposeRules = {
   teamSize: number;
@@ -72,14 +90,27 @@ export type SlotAssignment = {
   defensePosition: string;
 };
 
+export type TacticFit = {
+  tacticId: string;
+  name: string;
+  /** 슬롯 번호 → 멤버 id */
+  bindings: Record<number, string>;
+  filled: number;
+  total: number;
+  points: number;
+  unfilled: Array<{ slotNo: number; description: string }>;
+};
+
 export type Composition = {
   slots: SlotAssignment[];
   /** 이 조합에서 쉬는 멤버 id (참가자 > 정원일 때). */
   bench: string[];
   emptySlots: number;
+  /** 선호 점수 + 전술 슬롯 점수 합계 */
   score: number;
   roleCount: Record<RoleGroup, number>;
   meetsRules: boolean;
+  tacticFits: TacticFit[];
   /** 사람이 읽는 근거 (긍정). */
   reasons: string[];
   /** 사람이 읽는 주의 (부정). */
@@ -90,6 +121,8 @@ export type ComposeInput = {
   members: ComposeMember[];
   agents: ComposeAgent[];
   rules?: ComposeRules;
+  /** 선택한 전술 (슬롯 점수). 비우면 선호 점수만. */
+  tactics?: ComposeTactic[];
   /** 돌려줄 조합 수. 기본 3. */
   limit?: number;
 };
@@ -159,24 +192,127 @@ function combinations(n: number, k: number): number[][] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// 전술 슬롯 매칭
+// ---------------------------------------------------------------------------
+
+/** 슬롯 하나에 (멤버, 배정 요원)이 맞는지와 점수. 0이면 안 맞는다. */
+function slotFitPoints(slot: ComposeSlot, member: ComposeMember, agentId: string | null, agentById: Map<string, ComposeAgent>): number {
+  if (!agentId) return 0;
+  if (slot.fixedMemberId && slot.fixedMemberId !== member.id) return 0;
+  const agent = agentById.get(agentId);
+  if (!agent) return 0;
+  const fits = slot.agentId ? slot.agentId === agentId : slot.roleGroup ? agent.roleGroup === slot.roleGroup : true;
+  if (!fits) return 0;
+  let points = SLOT_POINTS;
+  const hint = slot.positionHint.trim().toLowerCase();
+  if (hint && member.pref) {
+    const text = `${member.pref.attackPosition} ${member.pref.defensePosition}`.toLowerCase();
+    if (text.includes(hint)) points += POSITION_POINTS;
+  }
+  return points;
+}
+
+/**
+ * 슬롯 ↔ 멤버 최대 가중 매칭. 슬롯·멤버 모두 ≤ 5이므로 "사용한 멤버 비트마스크" DP(2^5)로 정확히 푼다.
+ * fit[s][m] = 슬롯 s에 멤버 m을 넣을 때 점수(0 = 불가).
+ */
+function bestSlotBinding(fit: number[][]): { points: number; choice: number[] } {
+  const S = fit.length;
+  const M = fit[0]?.length ?? 0;
+  type Path = { points: number; choice: number[] };
+  // 동점이면 "앞 슬롯부터 채운" 경로를 고른다 — 슬롯 1이 보통 핵심 역할이고, 결과가 결정적이어야 하기 때문.
+  const better = (a: Path, b: Path | undefined): boolean => {
+    if (!b) return true;
+    if (a.points !== b.points) return a.points > b.points;
+    const aFilled = a.choice.filter((c) => c >= 0).length;
+    const bFilled = b.choice.filter((c) => c >= 0).length;
+    if (aFilled !== bFilled) return aFilled > bFilled;
+    return a.choice.findIndex((c) => c < 0) > b.choice.findIndex((c) => c < 0);
+  };
+  // layer[mask] = 슬롯을 순서대로 처리하며 mask(쓴 멤버 집합)별 최선 경로
+  let layer = new Map<number, Path>([[0, { points: 0, choice: [] }]]);
+  for (let s = 0; s < S; s++) {
+    const next = new Map<number, Path>();
+    for (const [mask, cur] of layer) {
+      for (let m = 0; m < M; m++) {
+        if (mask & (1 << m) || fit[s][m] <= 0) continue;
+        const cand: Path = { points: cur.points + fit[s][m], choice: [...cur.choice, m] };
+        if (better(cand, next.get(mask | (1 << m)))) next.set(mask | (1 << m), cand);
+      }
+      const skip: Path = { points: cur.points, choice: [...cur.choice, -1] };
+      if (better(skip, next.get(mask))) next.set(mask, skip);
+    }
+    layer = next;
+  }
+  let best: Path | undefined;
+  for (const v of layer.values()) if (better(v, best)) best = v;
+  return best ?? { points: 0, choice: [] };
+}
+
+/** 아무것도 적지 않은 슬롯(역할군·요원·설명·고정 멤버 모두 없음)은 "미사용"으로 보고 점수·충족 수에서 뺀다. */
+export function isConfiguredSlot(slot: ComposeSlot): boolean {
+  return Boolean(slot.roleGroup || slot.agentId || slot.description.trim() || slot.fixedMemberId);
+}
+
+function fitTactic(
+  tactic: ComposeTactic,
+  team: ComposeMember[],
+  agentIds: Array<string | null>,
+  agentById: Map<string, ComposeAgent>,
+): TacticFit {
+  const slots = tactic.slots.filter(isConfiguredSlot).sort((a, b) => a.slotNo - b.slotNo);
+  const fit = slots.map((slot) => team.map((m, i) => slotFitPoints(slot, m, agentIds[i], agentById)));
+  const { points, choice } = bestSlotBinding(fit);
+  const bindings: Record<number, string> = {};
+  const unfilled: TacticFit["unfilled"] = [];
+  slots.forEach((slot, i) => {
+    if (choice[i] >= 0) bindings[slot.slotNo] = team[choice[i]].id;
+    else unfilled.push({ slotNo: slot.slotNo, description: slot.description || slotLabel(slot) });
+  });
+  return {
+    tacticId: tactic.id,
+    name: tactic.name,
+    bindings,
+    filled: slots.length - unfilled.length,
+    total: slots.length,
+    points: Math.max(0, points),
+    unfilled,
+  };
+}
+
+function slotLabel(slot: ComposeSlot): string {
+  if (slot.roleGroup) return ROLE_LABELS[slot.roleGroup].ko;
+  if (slot.agentId) return `요원 ${slot.agentId}`;
+  return "아무나";
+}
+
+function tacticPoints(fits: TacticFit[]): number {
+  return fits.reduce((sum, f) => sum + f.points, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 팀 탐색
+// ---------------------------------------------------------------------------
+
 type TeamSearch = { best: Option[] | null; bestScore: number; bestAny: Option[] | null; bestAnyScore: number };
 
 /**
  * 한 팀(멤버 배열)에 대한 최적 배정. 깊이 우선 탐색으로 요원 중복을 가지치기하며,
  * 규칙 충족 최고점(best)과 규칙 무시 최고점(bestAny)을 동시에 추적한다.
+ * 점수 = 선호 점수 합 + (전술이 있으면) 슬롯 점수.
  */
-function searchTeam(team: ComposeMember[], agentById: Map<string, ComposeAgent>, rules: ComposeRules): TeamSearch {
+function searchTeam(team: ComposeMember[], agentById: Map<string, ComposeAgent>, rules: ComposeRules, tactics: ComposeTactic[]): TeamSearch {
   const options = team.map((m) => optionsFor(m, agentById));
   const state: TeamSearch = { best: null, bestScore: -1, bestAny: null, bestAnyScore: -1 };
   const chosen: Option[] = [];
   const used = new Set<string>();
 
-  const visit = (depth: number, score: number) => {
+  const visit = (depth: number, prefScore: number) => {
     if (depth === team.length) {
-      const roleCount = countRoles(
-        chosen.map((o) => o.agentId),
-        agentById,
-      );
+      const agentIds = chosen.map((o) => o.agentId);
+      const roleCount = countRoles(agentIds, agentById);
+      const score = prefScore + (tactics.length ? tacticPoints(tactics.map((t) => fitTactic(t, team, agentIds, agentById))) : 0);
       if (score > state.bestAnyScore) {
         state.bestAnyScore = score;
         state.bestAny = [...chosen];
@@ -191,7 +327,7 @@ function searchTeam(team: ComposeMember[], agentById: Map<string, ComposeAgent>,
       if (opt.agentId && used.has(opt.agentId)) continue;
       if (opt.agentId) used.add(opt.agentId);
       chosen.push(opt);
-      visit(depth + 1, score + opt.points);
+      visit(depth + 1, prefScore + opt.points);
       chosen.pop();
       if (opt.agentId) used.delete(opt.agentId);
     }
@@ -212,40 +348,49 @@ function toSlots(team: ComposeMember[], picked: Option[]): SlotAssignment[] {
   }));
 }
 
+type DescribeInput = {
+  slots: SlotAssignment[];
+  roleCount: Record<RoleGroup, number>;
+  rules: ComposeRules;
+  members: ComposeMember[];
+  agentById: Map<string, ComposeAgent>;
+  bench: string[];
+  emptySlots: number;
+  duplicates: string[];
+  tacticFits: TacticFit[];
+};
+
 /** 근거·경고 문장 생성. 점수 계산과 분리해 두어 문구를 바꿔도 로직 테스트가 깨지지 않는다. */
-function describe(
-  slots: SlotAssignment[],
-  roleCount: Record<RoleGroup, number>,
-  rules: ComposeRules,
-  members: ComposeMember[],
-  agentById: Map<string, ComposeAgent>,
-  bench: string[],
-  emptySlots: number,
-  duplicates: string[],
-): { reasons: string[]; warnings: string[] } {
+function describe(d: DescribeInput): { reasons: string[]; warnings: string[] } {
   const reasons: string[] = [];
   const warnings: string[] = [];
-  const nick = (id: string) => members.find((m) => m.id === id)?.nickname ?? id;
+  const nick = (id: string) => d.members.find((m) => m.id === id)?.nickname ?? id;
 
-  const firstPicks = slots.filter((s) => s.rank === 1).length;
+  const firstPicks = d.slots.filter((s) => s.rank === 1).length;
   if (firstPicks > 0) reasons.push(`1순위 요원 그대로 ${firstPicks}명`);
-  const lower = slots.filter((s) => s.rank === 2 || s.rank === 3);
+  const lower = d.slots.filter((s) => s.rank === 2 || s.rank === 3);
   if (lower.length) reasons.push(`${lower.map((s) => `${s.nickname} ${s.rank}순위`).join(", ")}`);
-  reasons.push(ROLE_GROUPS.map((g) => `${ROLE_LABELS[g].ko} ${roleCount[g]}`).join(" · "));
+  reasons.push(ROLE_GROUPS.map((g) => `${ROLE_LABELS[g].ko} ${d.roleCount[g]}`).join(" · "));
+
+  for (const f of d.tacticFits) {
+    if (f.filled === f.total && f.total > 0) reasons.push(`전술 ${f.name}: 슬롯 ${f.filled}/${f.total} 충족 — 그대로 실행 가능`);
+    else if (f.total > 0) reasons.push(`전술 ${f.name}: 슬롯 ${f.filled}/${f.total} 충족`);
+    for (const u of f.unfilled) warnings.push(`전술 ${f.name}: 슬롯 ${u.slotNo}(${u.description}) 비어 있음 — 수정 필요`);
+  }
 
   for (const g of ROLE_GROUPS) {
-    const min = rules.minByRole[g] ?? 0;
-    if (roleCount[g] < min) warnings.push(`${ROLE_LABELS[g].ko} ${roleCount[g]}명 — 규칙(${min}명 이상) 미달`);
+    const min = d.rules.minByRole[g] ?? 0;
+    if (d.roleCount[g] < min) warnings.push(`${ROLE_LABELS[g].ko} ${d.roleCount[g]}명 — 규칙(${min}명 이상) 미달`);
   }
-  for (const s of slots) {
-    const m = members.find((x) => x.id === s.memberId);
+  for (const s of d.slots) {
+    const m = d.members.find((x) => x.id === s.memberId);
     if (!m?.pref) warnings.push(`${s.nickname}: 이 맵 선호 미입력 — 요원을 직접 정하세요`);
     else if (!s.agentId) warnings.push(`${s.nickname}: 선호 요원이 모두 겹쳐 배정 못 함`);
-    else if (s.rank === null) warnings.push(`${s.nickname}: 선호 밖 요원(${agentById.get(s.agentId)?.nameKo ?? s.agentId})`);
+    else if (s.rank === null) warnings.push(`${s.nickname}: 선호 밖 요원(${d.agentById.get(s.agentId)?.nameKo ?? s.agentId})`);
   }
-  if (duplicates.length) warnings.push(`요원 중복: ${duplicates.map((id) => agentById.get(id)?.nameKo ?? id).join(", ")}`);
-  if (emptySlots > 0) warnings.push(`빈 슬롯 ${emptySlots}개 — 참가자가 정원보다 적습니다`);
-  if (bench.length) reasons.push(`벤치: ${bench.map(nick).join(", ")}`);
+  if (d.duplicates.length) warnings.push(`요원 중복: ${d.duplicates.map((id) => d.agentById.get(id)?.nameKo ?? id).join(", ")}`);
+  if (d.emptySlots > 0) warnings.push(`빈 슬롯 ${d.emptySlots}개 — 참가자가 정원보다 적습니다`);
+  if (d.bench.length) reasons.push(`벤치: ${d.bench.map(nick).join(", ")}`);
   return { reasons, warnings };
 }
 
@@ -256,18 +401,18 @@ function buildComposition(
   allMembers: ComposeMember[],
   agentById: Map<string, ComposeAgent>,
   rules: ComposeRules,
+  tactics: ComposeTactic[],
 ): Composition {
   const slots = toSlots(team, picked);
   const teamIds = new Set(team.map((m) => m.id));
   const bench = allMembers.filter((m) => !teamIds.has(m.id)).map((m) => m.id);
   const emptySlots = Math.max(0, rules.teamSize - team.length);
-  const roleCount = countRoles(
-    slots.map((s) => s.agentId),
-    agentById,
-  );
-  const score = slots.reduce((sum, s) => sum + s.points, 0);
-  const { reasons, warnings } = describe(slots, roleCount, rules, allMembers, agentById, bench, emptySlots, []);
-  return { slots, bench, emptySlots, score, roleCount, meetsRules, reasons, warnings };
+  const agentIds = slots.map((s) => s.agentId);
+  const roleCount = countRoles(agentIds, agentById);
+  const tacticFits = tactics.map((t) => fitTactic(t, team, agentIds, agentById));
+  const score = slots.reduce((sum, s) => sum + s.points, 0) + tacticPoints(tacticFits);
+  const { reasons, warnings } = describe({ slots, roleCount, rules, members: allMembers, agentById, bench, emptySlots, duplicates: [], tacticFits });
+  return { slots, bench, emptySlots, score, roleCount, meetsRules, tacticFits, reasons, warnings };
 }
 
 function compareCompositions(a: Composition, b: Composition): number {
@@ -284,11 +429,12 @@ function compareCompositions(a: Composition, b: Composition): number {
 }
 
 /**
- * 오늘 참가자와 맵 선호로 상위 조합을 계산한다.
+ * 오늘 참가자와 맵 선호(그리고 선택한 전술)로 상위 조합을 계산한다.
  * @throws RangeError 참가자가 MAX_PARTICIPANTS를 넘으면 (호출 측이 미리 검증하는 것이 원칙).
  */
 export function composeSquads(input: ComposeInput): ComposeOutput {
   const rules = input.rules ?? DEFAULT_RULES;
+  const tactics = input.tactics ?? [];
   const limit = input.limit ?? 3;
   if (input.members.length > MAX_PARTICIPANTS) {
     throw new RangeError(`참가자는 최대 ${MAX_PARTICIPANTS}명까지 계산할 수 있습니다 (현재 ${input.members.length}명)`);
@@ -303,9 +449,9 @@ export function composeSquads(input: ComposeInput): ComposeOutput {
       : combinations(members.length, rules.teamSize).map((idx) => idx.map((i) => members[i]));
 
   const compositions = teams.map((team) => {
-    const found = searchTeam(team, agentById, rules);
+    const found = searchTeam(team, agentById, rules, tactics);
     const picked = found.best ?? found.bestAny ?? team.map(() => ({ agentId: null, rank: null, points: 0 }) as Option);
-    return buildComposition(team, picked, found.best !== null, members, agentById, rules);
+    return buildComposition(team, picked, found.best !== null, members, agentById, rules, tactics);
   });
 
   compositions.sort(compareCompositions);
@@ -322,8 +468,10 @@ export function evaluateAssignment(input: {
   agents: ComposeAgent[];
   assignment: Record<string, string | null>;
   rules?: ComposeRules;
+  tactics?: ComposeTactic[];
 }): Composition {
   const rules = input.rules ?? DEFAULT_RULES;
+  const tactics = input.tactics ?? [];
   const agentById = new Map(input.agents.map((a) => [a.id, a]));
   const members = [...input.members].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -338,10 +486,12 @@ export function evaluateAssignment(input: {
   const ids = picked.map((p) => p.agentId).filter((x): x is string => Boolean(x));
   const duplicates = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
   const slots = toSlots(members, picked);
+  const agentIds = picked.map((p) => p.agentId);
   const roleCount = countRoles(ids, agentById);
   const emptySlots = Math.max(0, rules.teamSize - members.length);
   const meetsRules = duplicates.length === 0 && rulesSatisfied(roleCount, rules);
-  const score = picked.reduce((sum, p) => sum + p.points, 0);
-  const { reasons, warnings } = describe(slots, roleCount, rules, members, agentById, [], emptySlots, duplicates);
-  return { slots, bench: [], emptySlots, score, roleCount, meetsRules, reasons, warnings };
+  const tacticFits = tactics.map((t) => fitTactic(t, members, agentIds, agentById));
+  const score = picked.reduce((sum, p) => sum + p.points, 0) + tacticPoints(tacticFits);
+  const { reasons, warnings } = describe({ slots, roleCount, rules, members, agentById, bench: [], emptySlots, duplicates, tacticFits });
+  return { slots, bench: [], emptySlots, score, roleCount, meetsRules, tacticFits, reasons, warnings };
 }

@@ -10,7 +10,7 @@ type Me = { nickname: string; color: string; role: "admin" | "member" };
  * 상단 네비게이션. 구현이 끝난 단계(CURRENT_STAGE 이하)만 활성이고,
  * 나머지 메뉴는 기획서의 단계 순서대로 비활성 표시로 둔다(구조를 미리 보여주기 위함).
  */
-const CURRENT_STAGE = 2;
+const CURRENT_STAGE = 4;
 
 const NAV: Array<{ href: string; label: string; stage: number; adminOnly?: boolean }> = [
   { href: "/prefs", label: "멤버 선호", stage: 1 },

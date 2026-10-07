@@ -7,6 +7,7 @@ import {
   MAX_PARTICIPANTS,
   type ComposeAgent,
   type ComposeMember,
+  type ComposeTactic,
 } from "./compose";
 
 /**
@@ -210,4 +211,125 @@ test("evaluateAssignment: 선호 밖 요원으로 바꾸면 0점이 되고, 중�
   });
   assert.equal(dup.meetsRules, false);
   assert.ok(dup.warnings.some((w) => w.includes("중복")));
+});
+
+// ---------------------------------------------------------------------------
+// 3단계: 전술 슬롯 점수 (기획서 5절 "선택한 전술의 슬롯과 역할군 일치 +2", "선호 포지션 일치 +1")
+// ---------------------------------------------------------------------------
+function tactic(id: string, slots: Array<Partial<ComposeTactic["slots"][number]> & { slotNo: number }>): ComposeTactic {
+  return {
+    id,
+    name: id.toUpperCase(),
+    slots: slots.map((s) => ({
+      slotNo: s.slotNo,
+      roleGroup: s.roleGroup ?? null,
+      agentId: s.agentId ?? null,
+      description: s.description ?? "",
+      positionHint: s.positionHint ?? "",
+      fixedMemberId: s.fixedMemberId ?? null,
+    })),
+  };
+}
+
+test("전술 슬롯: 역할군이 맞는 슬롯마다 +2, 바인딩과 빈 슬롯을 돌려준다", () => {
+  const members = [
+    member("a", ["jett", null, null]),
+    member("b", ["sova", null, null]),
+    member("c", ["omen", null, null]),
+    member("d", ["cypher", null, null]),
+    member("e", ["raze", null, null]),
+  ];
+  const t = tactic("rush", [
+    { slotNo: 1, roleGroup: "controller", description: "A 메인 연막" },
+    { slotNo: 2, roleGroup: "initiator" },
+    { slotNo: 3, roleGroup: "duelist" },
+    { slotNo: 4, roleGroup: "duelist" },
+    { slotNo: 5, roleGroup: "controller", description: "B 연막" },
+  ]);
+  // 아무것도 적지 않은 슬롯은 미사용으로 빠진다 — total에 들어가지 않는다
+  const sparse = tactic("sparse", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2 }, { slotNo: 3 }]);
+  assert.equal(composeSquads({ members, agents, tactics: [sparse] }).compositions[0].tacticFits[0].total, 1);
+  const top = composeSquads({ members, agents, tactics: [t] }).compositions[0];
+  const fit = top.tacticFits[0];
+  assert.equal(fit.filled, 4);
+  assert.equal(fit.total, 5);
+  assert.equal(fit.points, 8);
+  assert.equal(fit.bindings[1], "c");
+  assert.equal(fit.bindings[2], "b");
+  assert.deepEqual(fit.unfilled.map((u) => u.slotNo), [5]);
+  // 기본 점수 5×(3+1) = 20 + 슬롯 8
+  assert.equal(top.score, 28);
+  assert.ok(top.warnings.some((w) => w.includes("RUSH") && w.includes("5") && w.includes("B 연막")));
+  assert.ok(top.reasons.some((r) => r.includes("RUSH") && r.includes("4/5")));
+});
+
+test("전술 슬롯 점수는 요원 배정을 바꾼다 (슬롯을 더 채우는 쪽이 총점이 높으면 2순위 요원을 고른다)", () => {
+  const members = [
+    member("a", ["jett", "omen", null]),
+    member("b", ["sova", null, null]),
+    member("c", ["brimstone", null, null]),
+    member("d", ["cypher", null, null]),
+    member("e", ["raze", null, null]),
+  ];
+  const t = tactic("double-smoke", [
+    { slotNo: 1, roleGroup: "controller" },
+    { slotNo: 2, roleGroup: "controller" },
+    { slotNo: 3, roleGroup: "initiator" },
+    { slotNo: 4, roleGroup: "sentinel" },
+    { slotNo: 5, roleGroup: "duelist" },
+  ]);
+  const without = composeSquads({ members, agents }).compositions[0];
+  assert.equal(without.slots.find((s) => s.memberId === "a")?.agentId, "jett");
+  const withT = composeSquads({ members, agents, tactics: [t] }).compositions[0];
+  assert.equal(withT.slots.find((s) => s.memberId === "a")?.agentId, "omen");
+  assert.equal(withT.tacticFits[0].filled, 5);
+});
+
+test("전술 슬롯: 특정 요원 슬롯·고정 멤버 슬롯·포지션 힌트(+1)를 반영한다", () => {
+  const members = [
+    { ...member("a", ["jett", null, null]), pref: { ...member("a", ["jett", null, null]).pref!, attackPosition: "A 메인 후방 진입" } },
+    member("b", ["sova", null, null]),
+    member("c", ["omen", null, null]),
+    member("d", ["cypher", null, null]),
+    member("e", ["raze", null, null]),
+  ];
+  const t = tactic("fixed", [
+    { slotNo: 1, agentId: "sova", description: "리콘 담당" }, // 특정 요원
+    { slotNo: 2, roleGroup: "duelist", fixedMemberId: "e" }, // e만 들어갈 수 있다
+    { slotNo: 3, roleGroup: "duelist", positionHint: "A 메인" }, // a의 공격 포지션과 일치 → +1
+    { slotNo: 4, roleGroup: "controller" },
+    { slotNo: 5, roleGroup: "sentinel" },
+  ]);
+  const fit = composeSquads({ members, agents, tactics: [t] }).compositions[0].tacticFits[0];
+  assert.equal(fit.bindings[1], "b");
+  assert.equal(fit.bindings[2], "e");
+  assert.equal(fit.bindings[3], "a");
+  assert.equal(fit.filled, 5);
+  assert.equal(fit.points, 11); // 5×2 + 포지션 1
+
+  // 고정 멤버가 팀에 없으면 그 슬롯은 비어야 한다
+  const t2 = tactic("fixed-missing", [{ slotNo: 1, roleGroup: "duelist", fixedMemberId: "zzz" }]);
+  const fit2 = composeSquads({ members, agents, tactics: [t2] }).compositions[0].tacticFits[0];
+  assert.equal(fit2.filled, 0);
+});
+
+test("evaluateAssignment도 전술 슬롯을 같은 기준으로 채점한다", () => {
+  const members = [
+    member("a", ["jett", null, null]),
+    member("b", ["sova", null, null]),
+    member("c", ["omen", null, null]),
+    member("d", ["cypher", null, null]),
+    member("e", ["raze", null, null]),
+  ];
+  const t = tactic("t", [{ slotNo: 1, roleGroup: "controller" }, { slotNo: 2, roleGroup: "initiator" }]);
+  const r = evaluateAssignment({
+    members,
+    agents,
+    tactics: [t],
+    assignment: { a: "jett", b: "sova", c: "omen", d: "cypher", e: "raze" },
+  });
+  assert.equal(r.tacticFits[0].filled, 2);
+  assert.equal(r.score, 20 + 4);
+  const r2 = evaluateAssignment({ members, agents, tactics: [t], assignment: { a: "jett", b: "reyna", c: "jett", d: "cypher", e: "raze" } });
+  assert.equal(r2.tacticFits[0].filled, 0, "전략가·척후대가 없으면 슬롯이 비어 있다");
 });

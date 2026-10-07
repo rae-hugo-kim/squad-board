@@ -30,7 +30,7 @@ await login("Rae");
 // 네비: 2단계 메뉴 활성, 3단계 비활성
 check((await page.locator("nav a:has-text('스쿼드 편성')").count()) === 1, "네비 '스쿼드 편성' 활성 링크");
 check((await page.locator("nav a:has-text('세션 기록')").count()) === 1, "네비 '세션 기록' 활성 링크");
-check((await page.locator("nav span[aria-disabled]:has-text('전술 보드')").count()) === 1, "네비 '전술 보드' 비활성");
+check((await page.locator("nav span[aria-disabled]").count()) === 0, "네비에 비활성(미구현) 메뉴 없음 — 4단계까지 모두 활성");
 
 // 참가자 5명을 만들기 위해 멤버 3명 추가 (stage1이 Minseo를 만들어 둠)
 await page.goto(`${BASE}/admin`);

@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import type { RoleGroup } from "@/db/schema";
 import { ROLE_LABELS } from "@/db/seed-data";
-import { evaluateAssignment, type ComposeAgent, type ComposeMember, type Composition } from "@/lib/squad/compose";
+import { evaluateAssignment, type ComposeAgent, type ComposeMember, type ComposeTactic, type Composition } from "@/lib/squad/compose";
 import { createSessionFromSquadAction } from "@/server/actions/sessions";
 import type { ActionResult } from "@/server/actions/auth";
 import { AgentSelect } from "@/components/agent-select";
@@ -20,6 +20,7 @@ export function CompositionCard({
   composition,
   members,
   agents,
+  tactics,
   mapId,
   mapName,
   defaultDate,
@@ -28,6 +29,7 @@ export function CompositionCard({
   composition: Composition;
   members: ComposeMember[];
   agents: ComposeAgent[];
+  tactics: ComposeTactic[];
   mapId: string;
   mapName: string;
   defaultDate: string;
@@ -42,8 +44,8 @@ export function CompositionCard({
 
   const touched = composition.slots.some((s) => assignment[s.memberId] !== s.agentId);
   const current = useMemo(
-    () => (touched ? evaluateAssignment({ members: teamMembers, agents, assignment }) : composition),
-    [touched, teamMembers, agents, assignment, composition],
+    () => (touched ? evaluateAssignment({ members: teamMembers, agents, assignment, tactics }) : composition),
+    [touched, teamMembers, agents, assignment, composition, tactics],
   );
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
@@ -54,6 +56,8 @@ export function CompositionCard({
     agentId: assignment[s.memberId] ?? null,
     position: [s.attackPosition, s.defensePosition].filter(Boolean).join(" / "),
   }));
+  /** 확정 시 경기에 기록할 전술별 슬롯 바인딩 {슬롯번호: 멤버id} */
+  const tacticsPayload = current.tacticFits.map((f) => ({ tacticId: f.tacticId, bindings: f.bindings }));
 
   return (
     <article className={`card p-5 ${index === 0 ? "border-accent/60" : ""}`}>
@@ -138,6 +142,34 @@ export function CompositionCard({
         </table>
       </div>
 
+      {current.tacticFits.length ? (
+        <div className="mt-4 flex flex-col gap-2">
+          {current.tacticFits.map((f) => (
+            <div key={f.tacticId} className={`rounded-md border p-3 text-xs ${f.filled === f.total ? "border-success/40 bg-success/5" : "border-warning/40 bg-warning/5"}`}>
+              <div className="mb-1 flex items-center gap-2">
+                <span className="font-bold">전술 {f.name}</span>
+                <span className="font-mono">
+                  슬롯 {f.filled}/{f.total}
+                </span>
+                <span className="font-mono text-secondary">+{f.points}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(f.bindings).map(([slotNo, memberId]) => (
+                  <span key={slotNo} className="rounded-sm border border-line bg-raised px-1.5 py-0.5">
+                    #{slotNo} → {memberById.get(memberId)?.nickname ?? memberId}
+                  </span>
+                ))}
+                {f.unfilled.map((u) => (
+                  <span key={u.slotNo} className="rounded-sm border border-dashed border-warning px-1.5 py-0.5 text-warning">
+                    #{u.slotNo} {u.description} 비어 있음
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="mt-4 grid gap-3 text-xs md:grid-cols-2">
         <div className="rounded-md border border-line bg-base p-3">
           <div className="mb-1 font-bold text-secondary">근거</div>
@@ -170,6 +202,7 @@ export function CompositionCard({
         <input type="hidden" name="mapId" value={mapId} />
         <input type="hidden" name="slots" value={JSON.stringify(slotsPayload)} />
         <input type="hidden" name="bench" value={JSON.stringify(composition.bench)} />
+        <input type="hidden" name="tactics" value={JSON.stringify(tacticsPayload)} />
         <div>
           <label htmlFor={`date-${index}`} className="label">
             세션 날짜

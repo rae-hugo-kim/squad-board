@@ -15,6 +15,13 @@
       "when": 1791350994217,
       "tag": "0001_narrow_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791360453044,
+      "tag": "0002_loud_masque",
+      "breakpoints": true
     }
   ]
 }

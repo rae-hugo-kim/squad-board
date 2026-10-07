@@ -6,6 +6,7 @@ import { formatDateKo } from "@/lib/date";
 import { deleteSessionAction } from "@/server/actions/sessions";
 import { listActiveAgents, listActiveMembers, listMaps } from "@/server/queries/prefs";
 import { getSessionDetail } from "@/server/queries/sessions";
+import { listTacticsLite } from "@/server/queries/tactics";
 import { MemberAvatar } from "@/components/result-badge";
 import { AddMatchForm } from "./add-match-form";
 import { MatchEditor } from "./match-editor";
@@ -33,6 +34,9 @@ export default async function SessionDetailPage({ params }: Props) {
 
   const [mapList, agentList, memberList] = await Promise.all([listMaps(), listActiveAgents(), listActiveMembers()]);
   const { session, participants, matches } = detail;
+  // 경기 맵별 전술 목록 (사용 전술 선택용). 맵마다 한 번만 읽는다.
+  const mapIdsInUse = [...new Set(matches.map((m) => m.mapId))];
+  const tacticsByMap = new Map(await Promise.all(mapIdsInUse.map(async (id) => [id, await listTacticsLite(id)] as const)));
   const record = { win: 0, loss: 0, draw: 0 };
   for (const m of matches) if (m.result) record[m.result] += 1;
   const isAdmin = me.role === "admin";
@@ -72,6 +76,7 @@ export default async function SessionDetailPage({ params }: Props) {
                 key={m.id}
                 isAdmin={isAdmin}
                 agents={agentList.map((a) => ({ id: a.id, nameKo: a.nameKo, roleGroup: a.roleGroup }))}
+                tacticOptions={(tacticsByMap.get(m.mapId) ?? []).map((t) => ({ id: t.id, name: t.name, side: t.side }))}
                 match={{
                   id: m.id,
                   seq: m.seq,
@@ -83,6 +88,8 @@ export default async function SessionDetailPage({ params }: Props) {
                   memo: m.memo,
                   isConfirmed: m.isConfirmed,
                   updatedAt: m.updatedAt,
+                  tacticIds: m.tactics.map((t) => t.tacticId),
+                  tacticBindings: m.tactics,
                   players: m.players.map((p) => ({
                     id: p.id,
                     member: p.member,

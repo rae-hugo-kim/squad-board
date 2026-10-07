@@ -19,6 +19,10 @@ export type MatchEditorData = {
   memo: string;
   isConfirmed: boolean;
   updatedAt: string;
+  /** 사용한 전술 id (같은 맵의 전술 중 선택) */
+  tacticIds: string[];
+  /** 편성기에서 확정한 슬롯 바인딩 — 읽기 전용 표시 */
+  tacticBindings: Array<{ tacticId: string; name: string; slotBindings: Record<string, string> }>;
   players: Array<{
     id: string;
     member: { id: string; nickname: string; color: string };
@@ -42,13 +46,27 @@ const toStr = (n: number | null) => (n == null ? "" : String(n));
  * - key는 match.id다. updatedAt을 key에 넣으면 저장 직후 리마운트되어 useActionState의 "저장했습니다"가 사라진다.
  *   저장 후 화면 값 = 방금 저장한 값이므로 상태를 다시 초기화할 필요가 없다. 확정 여부는 props에서 바로 읽는다.
  */
-export function MatchEditor({ match, agents, isAdmin }: { match: MatchEditorData; agents: AgentOption[]; isAdmin: boolean }) {
+export type TacticOption = { id: string; name: string; side: "attack" | "defense" };
+
+export function MatchEditor({
+  match,
+  agents,
+  isAdmin,
+  tacticOptions,
+}: {
+  match: MatchEditorData;
+  agents: AgentOption[];
+  isAdmin: boolean;
+  /** 이 경기 맵의 전술 목록 */
+  tacticOptions: TacticOption[];
+}) {
   const readOnly = match.isConfirmed && !isAdmin;
   const [result, formAction, pending] = useActionState<ActionResult | null, FormData>(updateMatchAction, null);
   const [outcome, setOutcome] = useState<string>(match.result ?? "");
   const [scoreAlly, setScoreAlly] = useState(toStr(match.scoreAlly));
   const [scoreEnemy, setScoreEnemy] = useState(toStr(match.scoreEnemy));
   const [memo, setMemo] = useState(match.memo);
+  const [tacticIds, setTacticIds] = useState<Set<string>>(() => new Set(match.tacticIds));
   const [players, setPlayers] = useState<Record<string, PlayerState>>(() =>
     Object.fromEntries(
       match.players.map((p) => [
@@ -173,6 +191,47 @@ export function MatchEditor({ match, agents, isAdmin }: { match: MatchEditorData
               />
             </div>
           </div>
+
+          {tacticOptions.length ? (
+            <div>
+              <div className="label">사용한 전술 (선택)</div>
+              <div className="flex flex-wrap gap-1.5">
+                {tacticOptions.map((t) => {
+                  const on = tacticIds.has(t.id);
+                  return (
+                    <label key={t.id} className={`flex min-h-8 cursor-pointer items-center gap-1.5 rounded-sm border px-2 text-xs ${on ? "border-accent bg-accent-subtle" : "border-line text-secondary"}`}>
+                      <input
+                        type="checkbox"
+                        name="tacticIds"
+                        value={t.id}
+                        checked={on}
+                        onChange={() =>
+                          setTacticIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(t.id)) next.delete(t.id);
+                            else next.add(t.id);
+                            return next;
+                          })
+                        }
+                        className="sr-only"
+                      />
+                      <span className={t.side === "attack" ? "text-side-attack" : "text-side-defense"}>{t.side === "attack" ? "공" : "수"}</span>
+                      {t.name}
+                    </label>
+                  );
+                })}
+              </div>
+              {match.tacticBindings.some((b) => Object.keys(b.slotBindings).length) ? (
+                <p className="mt-1 text-xs text-muted">
+                  편성 바인딩:{" "}
+                  {match.tacticBindings
+                    .filter((b) => Object.keys(b.slotBindings).length)
+                    .map((b) => `${b.name} (${Object.entries(b.slotBindings).map(([n, mid]) => `#${n} ${match.players.find((p) => p.member.id === mid)?.member.nickname ?? "?"}`).join(", ")})`)
+                    .join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">

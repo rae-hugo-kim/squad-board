@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { getMapStats, getMemberStats } from "@/server/queries/sessions";
+import { getTacticStats } from "@/server/queries/tactics";
+import { TACTIC_SIDE_LABELS } from "@/lib/tactics/types";
 import { MemberAvatar, ResultBadge } from "@/components/result-badge";
 import { RoleDot } from "@/components/role-dot";
 
@@ -25,7 +27,7 @@ function RateBar({ rate, matches }: { rate: number; matches: number }) {
  */
 export default async function StatsPage() {
   await requireMember();
-  const [memberStats, mapStats] = await Promise.all([getMemberStats(), getMapStats()]);
+  const [memberStats, mapStats, tacticStats] = await Promise.all([getMemberStats(), getMapStats(), getTacticStats()]);
   const played = mapStats.filter((m) => m.matches > 0);
 
   return (
@@ -70,6 +72,51 @@ export default async function StatsPage() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 font-display text-2xl font-bold tracking-wide">전술별</h2>
+        {tacticStats.length === 0 ? (
+          <div className="card p-6 text-sm text-secondary">경기에 사용한 전술을 기록하면 전술별 승률이 여기에 쌓입니다.</div>
+        ) : (
+          <div className="card overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead className="bg-base text-xs text-secondary">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-normal">전술</th>
+                  <th className="px-3 py-2.5 text-left font-normal">맵</th>
+                  <th className="px-3 py-2.5 text-left font-normal">경기</th>
+                  <th className="px-3 py-2.5 text-left font-normal">전적</th>
+                  <th className="px-3 py-2.5 text-left font-normal">승률</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tacticStats.map((t) => {
+                  const map = mapStats.find((m) => m.map.id === t.tactic.mapId)?.map;
+                  return (
+                    <tr key={t.tactic.id} className="border-t border-line">
+                      <td className="px-4 py-2.5">
+                        <Link href={`/tactics/board/${t.tactic.id}`} className="font-medium text-primary no-underline hover:text-accent">
+                          {t.tactic.name}
+                        </Link>
+                        <span className={`ml-2 text-xs ${t.tactic.side === "attack" ? "text-side-attack" : "text-side-defense"}`}>{TACTIC_SIDE_LABELS[t.tactic.side]}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-secondary">{map?.nameKo ?? "—"}</td>
+                      <td className="px-3 py-2.5 font-mono">{t.matches}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">
+                        <span className="text-success">{t.record.win}승</span> <span className="text-danger">{t.record.loss}패</span>
+                        {t.record.draw ? <span className="text-secondary"> {t.record.draw}무</span> : null}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <RateBar rate={t.winRate} matches={t.record.win + t.record.loss} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
