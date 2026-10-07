@@ -2,7 +2,7 @@
 warning_type: reference_only
 non_normative_reference_only: true
 last_sync_date: 2026-10-07
-status: synced
+status: stale
 source_of_truth: ../AGENTS.md
 source_commit_hash: 9fbe856f165904e86be21dfb9879715b17e3e7b2
 <!-- policy-sync-warning:end -->

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+<!-- 자리표시자: 사이트 위치 배치만 표시. 실제 탑뷰 이미지로 바꾸려면 이 파일을 같은 이름의 이미지로 교체하거나 maps.image_path를 수정 -->
+<defs><pattern id="g" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#182430" stroke-width="1"/></pattern></defs>
+<rect width="1000" height="1000" fill="#0a1017"/><rect width="1000" height="1000" fill="url(#g)"/>
+<rect x="60" y="60" width="880" height="880" rx="10" fill="none" stroke="#2f3e4c" stroke-width="3" stroke-dasharray="14 10"/>
+<path d="M60 500H940" stroke="#1f2d3a" stroke-width="3"/>
+<rect x="140" y="190" width="220" height="200" rx="6" fill="#16222d" stroke="#4a5a69" stroke-width="3"/><text x="250" y="305" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-size="96" font-weight="700" fill="#5f6b76">A</text><rect x="390" y="190" width="220" height="200" rx="6" fill="#16222d" stroke="#4a5a69" stroke-width="3"/><text x="500" y="305" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-size="96" font-weight="700" fill="#5f6b76">B</text><rect x="640" y="190" width="220" height="200" rx="6" fill="#16222d" stroke="#4a5a69" stroke-width="3"/><text x="750" y="305" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-size="96" font-weight="700" fill="#5f6b76">C</text>
+<rect x="300" y="560" width="400" height="120" rx="6" fill="#141f2a" stroke="#2f3e4c" stroke-width="2"/>
+<text x="500" y="632" text-anchor="middle" font-family="Pretendard, sans-serif" font-size="34" fill="#5f6b76">MID</text>
+<text x="500" y="120" text-anchor="middle" font-family="Pretendard, sans-serif" font-size="30" fill="#5ac8fa" opacity="0.8">수비 스폰</text>
+<text x="500" y="900" text-anchor="middle" font-family="Pretendard, sans-serif" font-size="30" fill="#ff4655" opacity="0.8">공격 스폰</text>
+<text x="80" y="960" font-family="Barlow Condensed, sans-serif" font-size="40" font-weight="700" fill="#2f3e4c">LOTUS</text>
+<text x="920" y="960" text-anchor="end" font-family="Pretendard, sans-serif" font-size="20" fill="#2f3e4c">자리표시자 · 실제 탑뷰로 교체 가능</text>
+</svg>

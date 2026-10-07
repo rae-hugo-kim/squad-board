@@ -7,9 +7,11 @@ import { logoutAction } from "@/server/actions/auth";
 type Me = { nickname: string; color: string; role: "admin" | "member" };
 
 /**
- * 상단 네비게이션. 1단계에서는 멤버 선호와 관리만 활성이고,
+ * 상단 네비게이션. 구현이 끝난 단계(CURRENT_STAGE 이하)만 활성이고,
  * 나머지 메뉴는 기획서의 단계 순서대로 비활성 표시로 둔다(구조를 미리 보여주기 위함).
  */
+const CURRENT_STAGE = 4;
+
 const NAV: Array<{ href: string; label: string; stage: number; adminOnly?: boolean }> = [
   { href: "/prefs", label: "멤버 선호", stage: 1 },
   { href: "/squad", label: "스쿼드 편성", stage: 2 },
@@ -36,7 +38,7 @@ export function AppNav({ me }: { me: Me }) {
         <nav className="flex flex-1 items-center gap-1 overflow-x-auto text-sm font-medium" aria-label="주요 메뉴">
           {NAV.filter((n) => !n.adminOnly || me.role === "admin").map((n) => {
             const active = pathname === n.href || pathname.startsWith(`${n.href}/`);
-            const enabled = n.stage === 1;
+            const enabled = n.stage <= CURRENT_STAGE;
             if (!enabled) {
               return (
                 <span

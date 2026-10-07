@@ -136,3 +136,20 @@ export async function saveMySensitivityAction(_prev: ActionResult | null, formDa
     return { ok: false, error: "저장 중 오류가 났습니다" };
   }
 }
+
+const crosshairSchema = z.string().trim().max(200, "200자 이내로 입력하세요");
+
+/** 내 크로스헤어 코드 저장 (4단계 유틸). 형식 검증은 하지 않는다 — 게임이 받아 주는 문자열이면 된다. */
+export async function saveMyCrosshairAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const me = await requireMember();
+  const parsed = crosshairSchema.safeParse(formData.get("crosshairCode") ?? "");
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "입력을 확인하세요" };
+  try {
+    await db.update(members).set({ crosshairCode: parsed.data, updatedAt: new Date().toISOString() }).where(eq(members.id, me.id));
+    revalidatePath("/tools");
+    return { ok: true };
+  } catch (err) {
+    log.error("crosshair save failed", { memberId: me.id, ...errorMeta(err) });
+    return { ok: false, error: "저장 중 오류가 났습니다" };
+  }
+}
