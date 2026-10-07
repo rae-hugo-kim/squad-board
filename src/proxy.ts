@@ -8,9 +8,9 @@ import { SESSION_COOKIE, verifySession } from "@/lib/session";
  * 하지 않는 일: DB 조회. 여기서는 서명만 확인하고, 멤버가 실제로 존재·활성인지는
  * 각 페이지의 requireMember()가 다시 확인한다. (가드는 빠르게, 정확한 판정은 페이지에서)
  *
- * 공개 경로: /login, Next 내부 자원, 정적 파일.
+ * 공개 경로: /login, /api/health(배포 진단 — 비밀값 없음), Next 내부 자원, 정적 파일.
  */
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/api/health"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
