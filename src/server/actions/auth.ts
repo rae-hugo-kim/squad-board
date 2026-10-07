@@ -50,21 +50,24 @@ export async function loginAction(_prev: ActionResult | null, formData: FormData
   const { passcode, memberId, next } = parsed.data;
 
   const env = getEnv();
-  if (!safeEqual(passcode, env.SQUAD_PASSCODE)) {
-    log.warn("login failed: bad passcode", { memberId });
-    return { ok: false, error: "패스코드가 틀렸습니다", fieldErrors: { passcode: "패스코드가 틀렸습니다" } };
-  }
-
   try {
     const member = await db
-      .select({ id: members.id, nickname: members.nickname })
+      .select({ id: members.id, nickname: members.nickname, role: members.role })
       .from(members)
       .where(and(eq(members.id, memberId), eq(members.isActive, true)))
       .get();
     if (!member) return { ok: false, error: "선택한 닉네임을 찾을 수 없습니다" };
 
+    // 관리자 닉네임은 관리자 패스코드로만 입장한다. ADMIN_PASSCODE가 없으면(분리 전) 공용 코드로 대체.
+    const expected = member.role === "admin" ? (env.ADMIN_PASSCODE ?? env.SQUAD_PASSCODE) : env.SQUAD_PASSCODE;
+    if (!safeEqual(passcode, expected)) {
+      log.warn("login failed: bad passcode", { memberId, role: member.role });
+      const msg = member.role === "admin" ? "관리자 패스코드가 틀렸습니다" : "패스코드가 틀렸습니다";
+      return { ok: false, error: msg, fieldErrors: { passcode: msg } };
+    }
+
     await createSessionCookie(member.id);
-    log.info("login ok", { memberId: member.id, nickname: member.nickname });
+    log.info("login ok", { memberId: member.id, nickname: member.nickname, role: member.role });
   } catch (err) {
     log.error("login error", errorMeta(err));
     return { ok: false, error: "로그인 처리 중 오류가 났습니다. 잠시 후 다시 시도하세요" };

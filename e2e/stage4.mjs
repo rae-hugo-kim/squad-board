@@ -3,6 +3,7 @@
 import { chromium } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3100";
+const ADMIN_PASS = process.env.E2E_ADMIN_PASSCODE ?? process.env.E2E_PASSCODE ?? "valo1234";
 const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors = [];
@@ -18,7 +19,7 @@ if (!page.url().includes("/login")) {
 }
 await page.goto(`${BASE}/login`);
 await page.waitForLoadState("networkidle");
-await page.fill("#passcode", "valo1234");
+await page.fill("#passcode", ADMIN_PASS);
 await page.click("label:has-text('Rae')");
 await page.click("button[type=submit]");
 await page.waitForURL(`${BASE}/prefs/**`);
