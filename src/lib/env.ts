@@ -29,9 +29,21 @@ let cached: Env | null = null;
  * 검증된 환경 변수를 반환한다. 최초 호출 시 한 번만 파싱하고 캐시한다.
  * 실패하면 어떤 키가 왜 잘못됐는지 모아서 에러를 던진다.
  */
+/**
+ * Vercel 마켓플레이스의 Turso 연동은 변수를 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 이름으로 넣는다.
+ * 우리 이름(DATABASE_URL / DATABASE_AUTH_TOKEN)이 없을 때만 그 값을 받아들여, 연동 한 번으로 배포가 되게 한다.
+ */
+export function resolveEnvSource(raw: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return {
+    ...raw,
+    DATABASE_URL: raw.DATABASE_URL || raw.TURSO_DATABASE_URL || undefined,
+    DATABASE_AUTH_TOKEN: raw.DATABASE_AUTH_TOKEN || raw.TURSO_AUTH_TOKEN || undefined,
+  };
+}
+
 export function getEnv(): Env {
   if (cached) return cached;
-  const parsed = envSchema.safeParse(process.env);
+  const parsed = envSchema.safeParse(resolveEnvSource());
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
