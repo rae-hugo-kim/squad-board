@@ -1,0 +1,86 @@
+name: estimate-vs-actual
+status: done
+completed: 2026-09-23
+version: 1
+task_id: "20260918-023000-e5a1"
+# 사후 작성 seed: docs/harness/handoff_2026-09-21_estimate-vs-actual.md(chats 세션 발신)를
+# 근거로 사이클 3개로 분해한 작업의 AC를 코드 착지 전에 기록한다. kickoff 인터뷰는
+# 생략(핸드오프가 동기·설계·AC·비범위까지 담고 있음 — 2026-09-02 핸드오프 선례와 동일).
+# 핸드오프 대비 정정 4건(저장 위치 A, review-gate 부착, session-log FAIL 카운트,
+# 리포트 위치)은 2026-09-18 세션 계획에서 코드 실측으로 확정.
+goal: >
+  인테이크(kickoff / cycle intake) 시점에 예상 위험 등급·파일 수·추론 깊이·사용
+  모델을 한 줄 레코드로 남기고, 커밋 시점에 risk-assess의 실측 결과를 같은 레코드에
+  붙여 audit.jsonl에 estimate_vs_actual 이벤트로 기록한다. 목적은 자동 라우팅이
+  아니라 몇 달 뒤 rules/agent_routing.md의 모델·에포트·에이전트 선택 기준을 실측
+  근거로 갱신할 데이터를 만드는 것이다. 산출물은 "기록 + 손으로 읽는 표"다.
+
+constraints:
+  - 레코드 파일의 존재·내용은 어떤 게이트의 allow/block 판정에도 관여하지 않는다 (예측 기반 완화 금지)
+  - 관측 도구가 작업을 막으면 안 된다 — 형식 오류 레코드는 무시 + stderr 경고 1줄
+  - 기존 one-shot 관례를 따른다 — JSON 튜플 + 버전 태그, pending-consume 지연 소비, post-commit 화이트리스트(.omp/harness-state/*) 내 경로
+  - 폭발 반경(risk)과 추론 깊이(depth)는 독립 축으로 따로 기록한다
+  - rules/agent_routing.md의 라우팅 기준값은 이번에 바꾸지 않는다
+  - git 상태 변경(커밋·푸시·태그·이슈)은 사용자 명시 지시 시에만
+
+acceptance_criteria:
+  - id: AC1-gates-unchanged
+    title: 레코드 파일 부재 시 모든 게이트의 allow/block 판정과 stderr 출력이 불변이다
+    must:
+      - "기존 하네스 테스트 스위트 전량 통과 (.omp/extensions/harness/tests/*.test.mjs)"
+  - id: AC2-no-verdict-influence
+    title: 레코드 파일 존재 여부·내용은 어떤 경우에도 게이트 판정에 영향을 주지 않는다
+    must:
+      - "hook-gates 픽스처: high 위험 + 유효/무효 레코드 → 판정(exit code)과 BLOCK 메시지가 레코드 없을 때와 동일"
+  - id: AC3-consume-on-land
+    title: hook mode 커밋 착지 시 estimate_vs_actual 이벤트가 정확히 1건 append되고 레코드가 소비된다
+    must:
+      - "레코드 있는 git commit 착지 → docs/harness/audit.jsonl에 estimate_vs_actual 1건, .omp/harness-state/cycle-estimate 소멸"
+      - "레코드 있는 git commit 차단(게이트 BLOCK) → append·소비 모두 발생하지 않고 레코드 잔존"
+      - "레코드 없이 커밋 → audit.jsonl 변화 없음"
+  - id: AC4-malformed-ignored
+    title: 형식 오류 레코드는 무시 + stderr 경고 1줄, 차단하지 않는다
+    must:
+      - "태그 불일치·필드 누락·enum 밖 값 → HARNESS WARNING 1줄, exit 0, 레코드는 소비되지 않고 잔존"
+  - id: AC5-intake-rule
+    title: rules/cycle_definition.md 출력 형식에 예상 줄이 추가되고 사이클 미만 생략 조항과 충돌하지 않는다
+    must:
+      - "판정 출력 형식에 `예상: 위험 … / 파일 n / 깊이 …` 줄 + 1사이클 판정 시 레코드 기록 MUST + 사이클 미만 생략 명시"
+      - "kickoff SKILL.md: seed estimate 필드 + Step 6에서 레코드 파일 파생"
+      - "node scripts/docs-drift OK"
+  - id: AC6-report-deterministic
+    title: 리포트가 픽스처에서 결정적으로 같은 표를 출력한다
+    must:
+      - "픽스처 audit.jsonl 5건 입력 시 편향 표(예상×실측 교차표 + 파일 수 비율 중앙값)와 셀 표((등급, 깊이, 모델) 건수 + FAIL 합)가 기대 문자열과 일치"
+  - id: AC7-claudekr-sync
+    title: claudedocs/CLAUDEKR.md 동기 여부가 명시된다
+    must:
+      - "AGENTS.md 변경 없음 → 완료 보고에 '변경 없음' 명시"
+
+out_of_scope:
+  - "모델·에포트·에이전트 자동 선택 또는 추천 문구 출력"
+  - "예측값에 따른 게이트 임계 완화/강화"
+  - "viper식 점수 공식 도입"
+  - "재작업 횟수(커밋↔사이클 연결) — v2"
+  - "rules/agent_routing.md 라우팅 기준값 변경 — 데이터가 쌓인 뒤 별도 사이클"
+  - "post-commit(node-free)에서 commit sha를 이벤트에 채우기 — v1 이벤트는 sha 없이 기록"
+
+assumptions:
+  - "레코드는 .omp/harness-state/cycle-estimate (gitignored, post-commit unlink 화이트리스트 기존 포함) — 핸드오프 B안 대신 A안"
+  - "대조는 review-gate.mjs hook mode에 부착 (assessRisk 호출·harness_sync 이벤트 큐잉 선례가 있는 유일한 지점)"
+  - "결과 품질 신호 v1 = 레코드 ts 이후 .omp/harness-state/session-log.jsonl의 test FAIL 건수"
+  - "리포트는 .omp/extensions/harness/estimate-report.mjs (디렉터리째 sync되는 위치, gh-loop-*.mjs 선례)"
+
+risks:
+  - "review-gate는 디스패처 3초 예산 안에서 돌아야 한다 — session-log tail 읽기는 바운디드여야 함"
+  - "파이프로 종료코드가 가려진 실패 실행(node --test | tail)은 breadcrumb에 PASS로 기록됨 — FAIL 카운트 과소 (기존 한계, 문서화)"
+  - "개인 하네스 표본이 적어(주 10–20 커밋) 셀당 유의미한 수가 모이는 데 수개월"
+
+references:
+  - "docs/harness/handoff_2026-09-21_estimate-vs-actual.md"
+  - "docs/harness/handoff_2026-09-02_sync-commit-gates.md"
+  - ".omp/extensions/harness/gates/review-gate.mjs (harness_sync 이벤트 큐잉 선례)"
+  - ".githooks/post-commit (pending-consume 소비 프로토콜)"
+  - "https://github.com/rae-hugo-kim/omp/issues/32"
+  - "https://github.com/rae-hugo-kim/omp/issues/33"
+  - "https://github.com/rae-hugo-kim/omp/issues/34"

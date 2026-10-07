@@ -1,0 +1,70 @@
+name: gh-loop-dispatch-mode-65
+status: done
+completed: 2026-10-02
+version: 1
+task_id: "20261002-060410-86ff"
+# gh-loop 사후 seed: 이슈 #65 본문 + docs/handoff/handoff_2026-10-02_gh-loop-dispatch-mode.md(R1~R5, AC1~AC5)가
+# 근거·결정·완료 기준을 담고 있어 kickoff 인터뷰는 생략(audit-append-only-62 선례). 착지 뒤 권위는 이 seed.
+# 직전 seed(audit-append-only-62, done)는 docs/harness/archive/20261001-audit-append-only-62/seed.yaml로 보관.
+goal: >
+  gh-loop를 dispatch 모드로 바꾼다 — 메인 세션에서 `/gh-loop <N>`을 치면 메인(코디네이터)은 코드를 만지지 않고,
+  모델을 사용자에게 물은 뒤 새 워크트리에 새 omp 세션(워커)을 띄워 루프를 위임하고 즉시 복귀한다. 워커가
+  이슈→수정→PR→결정 요청까지 수행하고, 재개·머지 뒤 정리는 코디네이터가 `issue:<N>` 셀렉터로 같은 워크트리를
+  다시 찾아 처리한다. 워커 기동 1순위/폴백 경로는 R4 스파이크 실측 결과를 따른다.
+
+constraints:
+  - git 상태 변경(커밋·푸시)과 GitHub 상태 변경(라벨·댓글·PR)은 gh-loop 절차 안에서만, 머지는 사용자 명시 승인 시에만
+  - 코디네이터는 블로킹 대기(`check --wait`, `terminal read` 폴링)를 하지 않는다 — 상태 원천은 GitHub(라벨·댓글)
+  - 워커는 다시 dispatch하지 않고(재귀 금지) 자기 워크트리를 지우지 않는다
+  - 모델 자동 선택 정책 없음 — 매번 사용자에게 묻고 이슈 마커로 기록
+
+acceptance_criteria:
+  - id: AC1-dispatch-mode
+    title: SKILL.md에 dispatch 모드(모델 ask → 워커 기동 → 프롬프트 → 즉시 복귀 → 재개 → 정리)가 R2 1~8대로 서술되고, 코디네이터가 `check --wait`/폴링을 하지 않는다고 명시된다
+    source: https://github.com/rae-hugo-kim/omp/issues/65
+    must:
+      - ".omp/skills/gh-loop/SKILL.md Stage 0(dispatch): 모델 ask(modelRoles 역할+id, '이 세션과 동일'), `<!-- gh-loop:model:<id>:<effort> -->` 마커, 워커 기동, 워커 프롬프트 필수 항목, 즉시 복귀, 재개(issue:N 셀렉터), 정리(worktree rm + 원격 브랜치 삭제), 턴 시작 루틴"
+  - id: AC2-worker-mode
+    title: worker 모드(마커·재귀 금지·자기 워크트리 삭제 금지·보고 채널·결정 지점 턴 종료)가 R3대로 서술된다
+    source: https://github.com/rae-hugo-kim/omp/issues/65
+    must:
+      - "SKILL.md: `<!-- gh-loop:worker -->` 마커(또는 `--worker`)로 worker 모드 판별, Stage 2~5 수행, 보고 채널(이슈 댓글 + `orca worktree set --comment`), 머지 승인 시 `gh pr merge --match-head-commit`까지만 워커, 정리는 코디네이터"
+  - id: AC3-spike-recorded
+    title: R4 스파이크 결과(omp가 `--model`을 받는지)가 실측 근거와 함께 SKILL.md·CHANGELOG에 기록되고, 1순위/폴백 경로가 그 결과를 따른다
+    source: https://github.com/rae-hugo-kim/omp/issues/65
+    must:
+      - "실측(2026-10-02): `worker-start --agent omp --model` → `invalid_argument: Agent omp does not support launch-time model selection`; `--model` 없이도 Orca omp 런처가 `ORCA_OMP_FRESH_CONFIG` 부재로 셸 폴백 → 2단계 경로(`worktree create --issue` + `terminal create --command \"omp --model … --thinking …\"`)가 1순위"
+  - id: AC4-nonnegotiables-fanout
+    title: Non-Negotiables에 "코디네이터는 코드를 만지지 않는다"가 있고, 2026-10-01에 추가된 커밋 순서 문단이 유지된다; gh-fanout에 후속 이슈 링크 한 줄
+    source: https://github.com/rae-hugo-kim/omp/issues/65
+    must:
+      - "SKILL.md Non-Negotiables 행 추가, Stage 2 커밋 순서 문단 유지, .omp/skills/gh-fanout/SKILL.md 스폰 단계에 후속 이슈 링크"
+  - id: AC5-verification
+    title: "`node --test .omp/extensions/harness/tests/*.test.mjs` 전부 통과, `node scripts/docs-drift` OK, handoff 문서가 커밋에 포함, PR 본문에 `Closes #65`"
+    source: https://github.com/rae-hugo-kim/omp/issues/65
+    must:
+      - "테스트·docs-drift 출력이 완료 보고에 인용되고, docs/handoff/handoff_2026-10-02_gh-loop-dispatch-mode.md가 seed 착지 커밋에 포함"
+
+out_of_scope:
+  - "option A(GitHub Actions + self-hosted runner로 댓글만으로 기동)"
+  - "gh-fanout의 스폰 교체(`omp --mode rpc` → worker-start) — 후속 이슈"
+  - "모델 자동 선택 정책"
+  - "전체 dispatch 경로의 라이브 스모크 — PR 머지 뒤 메인 세션이 다음 이슈(#60 또는 #61)로 수행"
+
+assumptions:
+  - "`orca worktree create --issue <N>`이 카드에 이슈를 링크하고 `issue:<N>` 셀렉터로 재탐색 가능(코디네이터 실측 2026-10-02)"
+  - "`omp --model <id> --thinking <level>`이 상태바에 반영된다(스파이크에서 `Fable 5.1 · ◑ med` 확인)"
+
+risks:
+  - "`terminal wait --for tui-idle`이 omp TUI에서 60초 타임아웃될 수 있다(스파이크 실측) — `terminal read --screen`으로 상태바를 확인하거나 타임아웃을 늘린다"
+  - "Orca omp 런처(`ORCA_OMP_FRESH_CONFIG`)가 복구되면 worker-start 경로가 다시 후보가 된다 — 그래도 `--model`은 거부되므로 모델 지정은 2단계 경로만 가능"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/65
+    reason: 원 이슈 (결정 3건·범위)
+  - path: docs/handoff/handoff_2026-10-02_gh-loop-dispatch-mode.md
+    reason: 요구 사항 R1~R5·AC1~AC5·작업 규율(seed의 전신)
+  - path: .omp/skills/gh-loop/SKILL.md
+    reason: 변경 대상 스킬
+  - path: .omp/skills/orca-cli/SKILL.md
+    reason: worktree/terminal 명령 계약

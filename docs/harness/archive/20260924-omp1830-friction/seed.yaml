@@ -1,0 +1,96 @@
+name: omp1830-friction
+status: done
+completed: 2026-09-24
+version: 1
+task_id: "20260924-163908-c420"
+# 사후 작성 seed: omp 18.3.0 마찰 감사(docs/sum/session_2026-09-24_omp1830-friction-audit.md,
+# sum-vault)에서 발행한 이슈 #40~#43 본문이 증상·원인·AC·재현까지 담고 있어 kickoff 인터뷰는
+# 생략(2026-09-18 estimate-vs-actual seed 선례). 직전 seed(issue-batch-2026-09-23, done)는
+# docs/harness/archive/20260923-issue-batch/seed.yaml로 보관.
+# 착수 순서: #40(코드, 보호 구멍) → #42(코드) → #41(docs) → #43(docs+프로브) → 범프 2026.80.
+goal: >
+  omp 18.3.0에서 실측된 하네스 마찰 4건을 봉합한다 — 백그라운드 bash 결과가 backpressure
+  PASS로 오기록되는 보호 구멍(#40), read-path의 proc/conflict 스킴·:img 셀렉터 누락(#42),
+  폐기된 hub 툴 참조(#41), 18.2.5에서 멈춘 실측 주석(#43). 모두 하네스 2026.80 한 범프로
+  소비 리포에 전달한다.
+
+constraints:
+  - git 상태 변경(커밋·푸시·태그)과 GitHub 이슈 상태 변경은 사용자 명시 지시 시에만
+  - 소비 레포에 동기화되는 경로(rules/, .omp/extensions/harness, 하네스 스킬)만으로 동작해야 한다
+  - 하네스 MUST(안전·게이트·검증)는 완화하지 않는다 — 미확정 결과는 PASS도 FAIL도 아니다
+  - claudedocs/CLAUDEKR.md는 AGENTS.md 변경과 같은 커밋에서 미러한다
+  - 실측 주석은 "omp <버전>, <날짜> 실측" 형식으로만 갱신하고, 결과가 달라지면 주석 대신 이슈를 낸다
+
+acceptance_criteria:
+  - id: AC1-async-backpressure
+    title: 백그라운드(async/auto-background) bash 결과가 backpressure 상태를 바꾸지 않는다 (#40)
+    source: https://github.com/rae-hugo-kim/omp/issues/40
+    must:
+      - "index.ts bash tool_result 분기가 details.async(state running) 이벤트에서 backpressure 성공·실패 트래커를 모두 건너뛰고, breadcrumb에는 pending으로 기록하며, isGitCommit 후처리(drift recheck·cycle-boundary 노트)도 실행하지 않는다"
+      - "회귀 테스트: details.async.state:'running' 이벤트 픽스처가 backpressure 트래커 스폰을 유발하지 않음 (tests/drift-recheck-wiring.test.mjs 패턴)"
+      - "rules/harness_integration_contract.md backpressure 절에 백그라운드 결과 취급(기록 안 됨, 완료 후 포그라운드 재실행 시 PASS 인정) 명시"
+      - "라이브 스모크: async:true 실패 명령 후 .omp/harness-state/test-history.json·backpressure-status·backpressure-last-fail 불변"
+  - id: AC2-read-path-grammar
+    title: read-path가 18.3.0 read/write 문법(proc·conflict 스킴, :img 셀렉터)을 인지한다 (#42)
+    source: https://github.com/rae-hugo-kim/omp/issues/42
+    must:
+      - "URI_SCHEME_PREFIX에 proc·conflict 추가; localFileTarget('proc:/bg_1/kill')→null, readTarget({path:'proc:/'})→'' 테스트"
+      - "READ_SELECTOR에 img 추가(:img 단독); readTarget({path:'a.svg:img'})→<cwd>/a.svg 테스트"
+      - "rules/harness_integration_contract.md §1 read-tracker 주석에 실측 버전 갱신"
+  - id: AC3-hub-retired
+    title: 폐기된 hub 툴 참조가 write agent://·wait로 대체된다 (#41)
+    source: https://github.com/rae-hugo-kim/omp/issues/41
+    must:
+      - "rules/agent_routing.md:37 운영 팁이 write agent://<id> 전송 + wait 수신으로 교체"
+      - ".omp/agents/reviewer.md:35 역사 기록은 사실 유지, 용어만 agent:// messages로 갱신(측정 날짜 유지)"
+      - "grep -rn '\\bhub\\b' rules .omp/agents .omp/skills AGENTS.md claudedocs/CLAUDEKR.md checklists templates 결과가 역사 기록으로 명시된 것 외 0건"
+  - id: AC4-remeasure-1830
+    title: 하네스 실측 주석이 omp 18.3.0 재측정으로 갱신된다 (#43)
+    source: https://github.com/rae-hugo-kim/omp/issues/43
+    must:
+      - "프로브 3종 실행: 임시 .omp/RULES.md 공존 로드, 개행 1개 .omp/AGENTS.md shadow(HARNESS POLICY SHADOWED + 루트 정책 소실), omp config list의 enforceSeenLines"
+      - "AGENTS.md:26-27·claudedocs/CLAUDEKR.md 대응 행·rules/harness_integration_contract.md:70·docs/harness/archive/20260923-issue-batch/seed.yaml assumptions(보관본은 불변, 새 seed assumptions에 결과 기록)의 주석이 '18.3.0, 2026-09-24 실측'으로 갱신되거나, 결과가 달라진 항목은 별도 이슈"
+      - "프로브용 임시 파일(.omp/RULES.md, .omp/AGENTS.md)이 작업 트리에 남지 않는다"
+  - id: AC5-bump-ready
+    title: 네 이슈가 한 커밋으로 하네스 2026.80 범프 준비 상태다 (테스트·CHANGELOG·리뷰·verifier)
+    must:
+      - "node --test .omp/extensions/harness/tests/*.test.mjs 전 항목 통과 (커밋 직전 포그라운드 실행)"
+      - "CHANGELOG.md [Unreleased]에 #40 #41 #42 #43 항목"
+      - "reviewer(3-pass, 이종 모델 실측) 사이드카가 staged diff 해시에 바인딩되고, verifier verdict가 도착한 뒤에만 커밋·완료 선언"
+      - "2026.80 태그 자체는 이 커밋 직후 같은 브랜치에서 scripts/harness-version-bump.sh로 발행(별도 bump 커밋, PR에 포함) — 이 AC의 판정 대상이 아님"
+
+out_of_scope:
+  - "#40 옵션: ctx.getAsyncJobSnapshot()로 완료 시점 재판정 — 조사 결과만 이슈 코멘트로 남기고 구현은 별도 사이클"
+  - "#31 omp 업데이트 감지·스모크 백스톱(Phase B 첫 항목), #14 #22 #25 #21 #29 #11 #15 #30 #8 #10 #37②"
+  - "이슈 닫기·커밋·푸시 자체 (사용자 지시로만)"
+
+assumptions:
+  - "omp://tools/bash.md 서술대로 백그라운드 시작 tool_result는 details.async {state:'running', jobId, type:'bash'}를 가지며 exitCode·isError가 없다 (18.3.0, 2026-09-24 실측 — #40 재현 2단계)"
+  - "omp 이벤트 배관은 단일 슬래시 정규화(xd:/retain)를 proc://에도 적용할 수 있다 — 실측은 xd만, proc는 방어적 추가"
+  - "18.3.0 changelog의 컨텍스트 파일 로딩·edit 가드는 변경 없음 — #43 프로브로 확인(2026-09-24, omp -p --no-session 3회): (A) 기본 = 루트 정책 YES / 프로젝트 마커 NO / user RULES YES, (B) .omp/RULES.md 존재 = YES/YES/YES(공존), (C) 개행 1개 .omp/AGENTS.md = NO/NO/YES(루트 정책 소실) + harness-version-check --force가 HARNESS POLICY SHADOWED 발화; omp config list → edit.enforceSeenLines = true"
+
+risks:
+  - "async 가드가 넓으면 포그라운드 완료 결과까지 skip해 backpressure가 영구 미기록될 수 있다 — details.async.state 값을 정확히 매칭하고 테스트로 고정"
+  - "#43 shadow 프로브는 실제 omp -p 세션을 띄운다 — 임시 .omp/AGENTS.md를 남기면 다음 세션이 정책 없이 시작된다 (AC4 정리 조항)"
+  - "READ_SELECTOR에 img를 넣을 때 range와 결합 형태를 허용하면 문법 미러 계약(read.md EXACTLY)이 깨진다 — 단독형만"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/40
+    reason: 백그라운드 bash 거짓 PASS — 재현·원인·제안
+  - path: https://github.com/rae-hugo-kim/omp/issues/41
+    reason: hub 폐기 반영 — 잔존 참조 표
+  - path: https://github.com/rae-hugo-kim/omp/issues/42
+    reason: read-path 스킴·셀렉터 누락
+  - path: https://github.com/rae-hugo-kim/omp/issues/43
+    reason: 18.3.0 재측정 항목표
+  - path: .omp/extensions/harness/index.ts
+    reason: bashRunFailed(L81)·bash tool_result 분기(L345-367)
+  - path: .omp/extensions/harness/gates/read-path.mjs
+    reason: READ_SELECTOR(L21-24)·URI_SCHEME_PREFIX(L50-51)
+
+estimate:
+  risk: medium
+  files: 12
+  depth: low
+  model: claude-fable-5-1
+  effort: medium

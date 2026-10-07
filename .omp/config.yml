@@ -1,0 +1,19 @@
+# Project-scoped OMP settings (committed; loaded automatically when a session
+# starts in this repo — precedence: defaults < global < THIS FILE < CLI overlays).
+# Purpose: ship the usage HUD with the repo so a fresh environment gets it
+# without any ~/.omp/agent/config.yml. Keep this file free of secrets.
+statusLine:
+  preset: custom
+  leftSegments:
+    - model
+    - usage
+    - pi
+    - mode
+    - collab
+    - path
+    - git
+    - pr
+    - context_pct
+    - cost
+  rightSegments:
+    - session_name

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>__TITLE__</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161922;
+      --text: #e6e8ee;
+      --muted: #8a90a0;
+      --accent: #7aa2f7;
+      --border: #2a2f3d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+    header {
+      grid-column: 1 / -1;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    .copy-btn {
+      padding: 8px 16px;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .copy-btn:hover { opacity: 0.9; }
+    .copy-btn.copied { background: #9ece6a; }
+    main {
+      padding: 24px;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    aside {
+      padding: 24px;
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      overflow: auto;
+    }
+    .control { margin-bottom: 20px; }
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .control label .value { color: var(--text); font-variant-numeric: tabular-nums; }
+    .control input[type="range"] { width: 100%; }
+    .control input[type="color"] { width: 100%; height: 32px; border: 1px solid var(--border); background: transparent; }
+    .control select {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>__TITLE__</h1>
+    <button class="copy-btn" id="copyBtn">Copy to Prompt</button>
+  </header>
+  <main id="preview">
+    <!-- replace next line with preview body markup -->
+    __PREVIEW_BODY__
+  </main>
+  <aside id="controls">
+    <!-- replace next line with control widgets (each with data-param=...) -->
+    __CONTROLS__
+  </aside>
+
+  <script>
+    // Wire up controls to live preview + copy button.
+    // Each control element with [data-param] is read into a params object.
+    // __COPY_FORMAT__ is the template string for clipboard output.
+
+    const controls = document.querySelectorAll('[data-param]');
+    const preview = document.getElementById('preview');
+
+    function getParams() {
+      const params = {};
+      controls.forEach(c => {
+        params[c.dataset.param] = c.value;
+        const label = c.closest('.control')?.querySelector('.value');
+        if (label) label.textContent = c.value;
+      });
+      return params;
+    }
+
+    function render() {
+      const params = getParams();
+      // __RENDER_HOOK__ — skill fills this with preview update logic
+      Object.entries(params).forEach(([k, v]) => {
+        preview.style.setProperty('--' + k, v);
+      });
+    }
+
+    function formatClipboard() {
+      const params = getParams();
+      // __COPY_FORMAT__ — replace with template literal e.g.
+      // `padding: ${params.pad}px; border-radius: ${params.r}px;`
+      return JSON.stringify(params, null, 2);
+    }
+
+    controls.forEach(c => c.addEventListener('input', render));
+    render();
+
+    document.getElementById('copyBtn').addEventListener('click', async (e) => {
+      try {
+        await navigator.clipboard.writeText(formatClipboard());
+        e.target.textContent = '✓ Copied';
+        e.target.classList.add('copied');
+        setTimeout(() => {
+          e.target.textContent = 'Copy to Prompt';
+          e.target.classList.remove('copied');
+        }, 1500);
+      } catch (err) {
+        alert('Clipboard write failed: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>

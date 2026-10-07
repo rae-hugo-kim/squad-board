@@ -1,0 +1,871 @@
+#!/usr/bin/env node
+
+const fs = require('node:fs');
+const path = require('node:path');
+const process = require('node:process');
+const { execFileSync } = require('node:child_process');
+
+const scriptDir = __dirname;
+const repoRoot = path.resolve(scriptDir, '..');
+
+const FAIL = 'FAIL';
+const WARNING = 'WARNING';
+
+const issues = [];
+const headingCache = new Map();
+
+function main() {
+  const markdownFiles = collectMarkdownFiles(repoRoot);
+  const markdownSet = new Set(markdownFiles.map((filePath) => toRepoPath(filePath)));
+
+  for (const filePath of markdownFiles) {
+    checkMarkdownLinks(filePath, markdownSet);
+  }
+
+  checkHookRegistration();
+  checkReferenceDocs();
+  checkReadmeAndIndexRefs();
+  checkCloseoutConsistency();
+
+  printReport();
+  process.exit(hasFailures() ? 1 : 0);
+}
+
+function collectMarkdownFiles(rootDir) {
+  const files = [];
+  walk(rootDir, files);
+  return files.filter((filePath) => shouldInspectMarkdown(toRepoPath(filePath)));
+}
+
+function walk(dirPath, files) {
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    const relativePath = toRepoPath(fullPath);
+
+    if (entry.isDirectory()) {
+      if (shouldSkipDirectory(relativePath)) {
+        continue;
+      }
+      walk(fullPath, files);
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(fullPath);
+    }
+  }
+}
+
+function shouldSkipDirectory(relativePath) {
+  return (
+    relativePath === '.git' ||
+    relativePath === '.omp/harness-state' ||
+    relativePath === '.omp/state' ||
+    relativePath === 'docs/brainstorming' ||
+    relativePath === 'docs/sum'
+  );
+}
+
+function shouldInspectMarkdown(relativePath) {
+  if (path.basename(relativePath) === 'SKILL.md' && relativePath.startsWith('.omp/skills/')) {
+    return true;
+  }
+
+  if (relativePath.endsWith('.md') && !relativePath.includes('/')) {
+    return true;
+  }
+
+  const allowedPrefixes = [
+    '.omp/rules/',
+    'checklists/',
+    'templates/',
+    'docs/rules/',
+    'docs/checklists/',
+    'docs/templates/',
+    'docs/harness/',
+    'docs/handoff/',
+    'claudedocs/',
+  ];
+
+  return allowedPrefixes.some((prefix) => relativePath.startsWith(prefix));
+}
+
+function checkMarkdownLinks(filePath, markdownSet) {
+  const content = stripFencedCodeBlocks(fs.readFileSync(filePath, 'utf8'));
+  const linkPattern = /\[[^\]]*]\(([^)]+)\)/g;
+  let match;
+
+  while ((match = linkPattern.exec(content)) !== null) {
+    const rawTarget = match[1];
+    const target = normalizeLinkTarget(rawTarget);
+
+    if (!target || isExternalLink(target)) {
+      continue;
+    }
+
+    if (target.startsWith('#')) {
+      const anchor = decodeAnchor(target.slice(1));
+      if (!anchorExists(filePath, anchor)) {
+        addIssue(FAIL, 'Missing anchor', {
+          source: toRepoPath(filePath),
+          link: target,
+          reason: 'anchor does not exist in the same file',
+        });
+      }
+      continue;
+    }
+
+    const [linkPath, anchorPart] = splitLinkTarget(target);
+    const resolvedPath = path.resolve(path.dirname(filePath), decodePath(linkPath));
+    const resolvedRepoPath = toRepoPath(resolvedPath);
+
+    if (!markdownSet.has(resolvedRepoPath) && !fs.existsSync(resolvedPath)) {
+      addIssue(FAIL, 'Missing linked file', {
+        source: toRepoPath(filePath),
+        link: target,
+        reason: 'file does not exist',
+      });
+      continue;
+    }
+
+    if (anchorPart && !anchorExists(resolvedPath, decodeAnchor(anchorPart))) {
+      addIssue(FAIL, 'Missing anchor', {
+        source: toRepoPath(filePath),
+        link: target,
+        reason: `anchor does not exist in ${resolvedRepoPath}`,
+      });
+    }
+  }
+}
+
+function normalizeLinkTarget(rawTarget) {
+  let target = rawTarget.trim();
+
+  if (target.startsWith('<') && target.endsWith('>')) {
+    target = target.slice(1, -1).trim();
+  }
+
+  const titledMatch = target.match(/^(\S+)(?:\s+["'][^]*["'])$/);
+  if (titledMatch) {
+    target = titledMatch[1];
+  }
+
+  return target;
+}
+
+function splitLinkTarget(target) {
+  const hashIndex = target.indexOf('#');
+  if (hashIndex === -1) {
+    return [target, ''];
+  }
+
+  return [target.slice(0, hashIndex), target.slice(hashIndex + 1)];
+}
+
+function isExternalLink(target) {
+  return /^(https?:|mailto:|tel:|data:|javascript:)/i.test(target);
+}
+
+function decodePath(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function decodeAnchor(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function anchorExists(filePath, anchor) {
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+
+  const headingIds = getHeadingIds(filePath);
+  return headingIds.has(slugifyHeading(anchor));
+}
+
+function getHeadingIds(filePath) {
+  const cacheKey = toRepoPath(filePath);
+  if (headingCache.has(cacheKey)) {
+    return headingCache.get(cacheKey);
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split(/\r?\n/);
+  const seenCounts = new Map();
+  const headingIds = new Set();
+
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    const rawHeading = stripInlineMarkdown(match[2].trim());
+    const baseId = slugifyHeading(rawHeading);
+    if (!baseId) {
+      continue;
+    }
+
+    const count = seenCounts.get(baseId) || 0;
+    const finalId = count === 0 ? baseId : `${baseId}-${count}`;
+    seenCounts.set(baseId, count + 1);
+    headingIds.add(finalId);
+  }
+
+  headingCache.set(cacheKey, headingIds);
+  return headingIds;
+}
+
+function stripInlineMarkdown(text) {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)]\([^)]+\)/g, '$1')
+    .replace(/[*_~]/g, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
+function slugifyHeading(text) {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function checkHookRegistration() {
+  const indexPath = path.join(repoRoot, '.omp/extensions/harness/index.ts');
+  const gatesDir = path.join(repoRoot, '.omp/extensions/harness/gates');
+
+  if (!fs.existsSync(indexPath)) {
+    addIssue(FAIL, 'Missing extension entry point', {
+      file: '.omp/extensions/harness/index.ts',
+      reason: 'gate registration source is missing',
+    });
+    return;
+  }
+
+  if (!fs.existsSync(gatesDir)) {
+    addIssue(FAIL, 'Missing gates directory', {
+      file: '.omp/extensions/harness/gates',
+      reason: 'gate implementations directory is missing',
+    });
+    return;
+  }
+  const indexSource = fs.readFileSync(indexPath, 'utf8');
+  const registeredHooks = [
+    ...new Set([...getRegisteredHookPaths(indexSource), ...getHookScriptRootPaths(repoRoot)]),
+  ];
+  const actualHooks = fs
+    .readdirSync(gatesDir)
+    .filter((name) => name.endsWith('.mjs'))
+    .map((name) => `.omp/extensions/harness/gates/${name}`);
+
+  for (const hookPath of registeredHooks) {
+    const absoluteHookPath = path.join(repoRoot, hookPath);
+    if (!fs.existsSync(absoluteHookPath)) {
+      addIssue(FAIL, 'Missing registered gate file', {
+        file: hookPath,
+        reason: 'registered in .omp/extensions/harness/index.ts but file does not exist',
+      });
+    }
+  }
+
+  // A gate is "live" if it is registered directly in index.ts (a quoted *.mjs
+  // literal: runGate call or static import) OR reachable from a registered gate
+  // through an import / spawn reference. The commit-gates dispatcher spawns
+  // acceptance/backpressure/review-gate; several gates import risk-assess or
+  // backpressure-patterns. None of those appear in index.ts, so a
+  // registration-only check flags them as false orphans. Reachability over the
+  // gate reference graph treats them as live while still flagging a genuinely
+  // dead gate (unregistered and unreferenced).
+  const reachable = computeReachableHooks(registeredHooks, gatesDir);
+
+  for (const hookPath of actualHooks) {
+    if (!reachable.has(hookPath)) {
+      addIssue(WARNING, 'Orphan gate file', {
+        file: hookPath,
+        reason:
+          'not registered in .omp/extensions/harness/index.ts and not reachable (import/spawn) from any registered gate',
+      });
+    }
+  }
+}
+
+// Build a reference graph over harness *.mjs files and return the set of hook
+// paths reachable from the registered seeds. An edge A -> B exists when hook A's
+// source contains a quoted "*.mjs" string literal (an import specifier or a
+// spawn-by-filename) whose basename resolves to a real file B in the harness
+// directory. Prose mentions are excluded because they lack the quoted ".mjs"
+// form. Seeds are limited to registered hooks, so a dead file imported only by
+// another dead file is never reached, preserving orphan detection.
+// Enforcement has TWO entry points, so orphan analysis has two root sets: the OMP
+// extension (index.ts) and the git hooks in .githooks/. Since the commit gates moved to
+// .githooks/pre-commit the dispatcher is named there, not in index.ts — without these
+// roots the whole commit-gate subtree would read as orphaned (test-attack C-3, 2026-07-30).
+function getHookScriptRootPaths(root) {
+  const roots = [];
+  const githooksDir = path.join(root, '.githooks');
+  if (!fs.existsSync(githooksDir)) return roots;
+  for (const name of fs.readdirSync(githooksDir)) {
+    const p = path.join(githooksDir, name);
+    if (!fs.statSync(p).isFile()) continue;
+    // Strip shell comments: a gate named only in a hook's explanatory comment is not an
+    // enforcement root. Output statements are NOT excluded — the dispatcher is invoked through a
+    // `printf … | node "$dispatcher"` pipeline, and skipping those lines produced FALSE orphans
+    // (review round 4, measured). Accepted limit: this check answers "does anything in the hooks
+    // still mention this gate", not "was the invocation line deleted".
+    const src = fs.readFileSync(p, 'utf8')
+      .split('\n')
+      .map((line) => line.replace(/(^|\s)#.*$/, '$1'))
+      .join('\n');
+    const mjsRef = /([A-Za-z0-9._-]+\.mjs)/g;
+    let m;
+    while ((m = mjsRef.exec(src)) !== null) roots.push(`.omp/extensions/harness/gates/${m[1]}`);
+  }
+  return roots;
+}
+
+function computeReachableHooks(registeredHooks, hooksDir) {
+  const harnessFiles = new Set(
+    fs.readdirSync(hooksDir).filter((name) => name.endsWith('.mjs')),
+  );
+  const toHookPath = (name) => `.omp/extensions/harness/gates/${name}`;
+
+  const hooksDirResolved = path.resolve(hooksDir);
+  const edges = new Map();
+  for (const name of harnessFiles) {
+    const source = stripJsComments(fs.readFileSync(path.join(hooksDir, name), 'utf8'));
+    const refs = new Set();
+    // Same-quote string literals ending in ".mjs" — an import specifier or a
+    // spawn-by-filename argument. Comments are stripped first so a name that
+    // appears only in a comment does not create a phantom edge that could hide
+    // a genuinely dead hook.
+    const mjsLiteral = /(['"`])([^'"`]*?\.mjs)\1/g;
+    let match;
+    while ((match = mjsLiteral.exec(source)) !== null) {
+      // Resolve relative to the hooks dir (a bare filename or a "./sibling.mjs"
+      // specifier). Only a literal that lands on a direct child of the hooks dir
+      // is a real edge; a same-basename path elsewhere (e.g. "../../x/foo.mjs")
+      // is not, so it cannot falsely revive a dead hook named foo.mjs.
+      const resolved = path.resolve(hooksDir, match[2]);
+      if (path.dirname(resolved) !== hooksDirResolved) continue;
+      const base = path.basename(resolved);
+      if (harnessFiles.has(base) && base !== name) {
+        refs.add(toHookPath(base));
+      }
+    }
+    edges.set(toHookPath(name), refs);
+  }
+
+  const reachable = new Set();
+  const queue = [];
+  for (const seed of registeredHooks) {
+    if (harnessFiles.has(path.basename(seed)) && !reachable.has(seed)) {
+      reachable.add(seed);
+      queue.push(seed);
+    }
+  }
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const next of edges.get(current) || []) {
+      if (!reachable.has(next)) {
+        reachable.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return reachable;
+}
+
+// Strip JS block and line comments so the gate reference graph is built only
+// from real import/spawn string literals, not from filenames mentioned in
+// comments. Heuristic (not a full parser): the "://" guard on line comments
+// keeps URLs inside real string literals intact, and the edge resolver further
+// rejects any literal that does not land inside the gates dir. Single pass
+// with alternation so a `/*` inside a `//` line comment (e.g. index.ts's
+// header mentioning `gates/*.mjs`) cannot open a phantom block comment that
+// swallows the code after it.
+function stripJsComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\/|(^|[^:])\/\/[^\n]*/g, (match, prefix) =>
+    prefix === undefined ? ' ' : prefix,
+  );
+}
+
+// Gate registrations in the OMP extension entry point (index.ts source text):
+// every quoted "*.mjs" string literal is a registration — the runGate("<gate>.mjs")
+// calls plus the static import of ./gates/git-commit-detect.mjs. Comments are
+// stripped first so a gate named only in prose cannot count as registered.
+function getRegisteredHookPaths(indexSource) {
+  const hookPaths = new Set();
+  const source = stripJsComments(String(indexSource));
+  const mjsLiteral = /(['"`])([^'"`]*?\.mjs)\1/g;
+  let match;
+  while ((match = mjsLiteral.exec(source)) !== null) {
+    hookPaths.add(`.omp/extensions/harness/gates/${path.basename(match[2])}`);
+  }
+  return hookPaths;
+}
+
+function checkReferenceDocs() {
+  const sourcePath = path.join(repoRoot, 'AGENTS.md');
+  const referenceDocs = [
+    'claudedocs/CLAUDEKR.md',
+    'claudedocs/CLAUDE_original.md',
+  ];
+  const currentSourceHash = getPolicySourceCommitHash();
+  if (!currentSourceHash) {
+    addIssue(WARNING, 'Reference-doc freshness unverified', {
+      reason:
+        'could not determine the current AGENTS.md commit hash (shallow clone, uncommitted AGENTS.md, or git unavailable) — the stale check was skipped, not passed',
+    });
+  }
+
+  for (const relativePath of referenceDocs) {
+    const filePath = path.join(repoRoot, relativePath);
+
+    if (!fs.existsSync(filePath)) {
+      addIssue(FAIL, 'Missing reference doc', {
+        file: relativePath,
+        reason: 'reference doc required by policy sync process does not exist',
+      });
+      continue;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    const sourceOfTruth = extractMetadataField(content, 'source_of_truth');
+    const sourceCommitHash = extractMetadataField(content, 'source_commit_hash');
+    const status = extractMetadataField(content, 'status') || '';
+
+    if (!sourceOfTruth) {
+      addIssue(FAIL, 'Missing canonical source metadata', {
+        file: relativePath,
+        reason: 'source_of_truth metadata is missing',
+      });
+      continue;
+    }
+
+    const resolvedSourcePath = path.normalize(path.resolve(path.dirname(filePath), sourceOfTruth));
+    if (resolvedSourcePath !== sourcePath) {
+      addIssue(FAIL, 'Canonical source mismatch', {
+        file: relativePath,
+        reason: `source_of_truth points to ${toRepoPath(resolvedSourcePath)} instead of AGENTS.md`,
+      });
+    }
+
+    if (!currentSourceHash || !sourceCommitHash) {
+      continue;
+    }
+
+    const staleSeverity = refDocStaleSeverity({
+      sourceCommitHash,
+      currentSourceHash,
+      status,
+    });
+    if (staleSeverity) {
+      addIssue(staleSeverity, 'Reference doc claims synced but is stale', {
+        file: relativePath,
+        reason: `source_commit_hash (${sourceCommitHash}) does not match AGENTS.md (${currentSourceHash}) while metadata still says status: synced — re-sync content and re-stamp, or mark status: stale`,
+      });
+    }
+  }
+}
+
+// Severity for a reference-doc whose stamped source hash differs from the
+// current AGENTS.md hash. A mirror that lags while still claiming `status:
+// synced` is false comfort and a hard FAIL (this is the integrity check P2 #8
+// adds). A mirror explicitly marked `status: stale` is an accepted, deferred
+// state (escape hatch) and is not flagged. Matching hashes are clean.
+function refDocStaleSeverity({ sourceCommitHash, currentSourceHash, status }) {
+  if (sourceCommitHash === currentSourceHash) return null;
+  // Only the exact, sole token "stale" is the accepted escape hatch. A status
+  // that merely contains the word (e.g. "synced # not stale", "not stale",
+  // "synced/stale") is NOT a valid opt-out and must still FAIL — otherwise the
+  // false-comfort drift this check exists to catch would slip through.
+  if ((status || '').trim().toLowerCase() === 'stale') return null;
+  return FAIL;
+}
+
+function extractMetadataField(content, fieldName) {
+  const pattern = new RegExp(`^${fieldName}:\\s*(.+)$`, 'm');
+  const match = content.match(pattern);
+  return match ? match[1].trim() : '';
+}
+
+function getPolicySourceCommitHash() {
+  try {
+    return execFileSync('git', ['log', '-1', '--format=%H', '--', 'AGENTS.md'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function checkReadmeAndIndexRefs() {
+  const skillNames = getDirectoryNames(path.join(repoRoot, '.omp/skills'));
+  const hookNames = getHookNames(path.join(repoRoot, '.omp/extensions/harness/gates'));
+  // Docs also reference git hooks by bare name (`pre-commit`, `post-merge`, ...) now that
+  // commit enforcement lives in .githooks/. Those are real files, just not gate CLIs.
+  const githooksDir = path.join(repoRoot, '.githooks');
+  const githookNames = new Set(
+    fs.existsSync(githooksDir)
+      ? fs.readdirSync(githooksDir).filter((n) => fs.statSync(path.join(githooksDir, n)).isFile())
+      : [],
+  );
+  const structureCountClaims = [
+    {
+      label: '.omp/rules/',
+      dirPath: path.join(repoRoot, '.omp/rules'),
+      extension: '.md',
+    },
+    {
+      label: 'checklists/',
+      dirPath: path.join(repoRoot, 'checklists'),
+      extension: '.md',
+    },
+    {
+      label: 'templates/',
+      dirPath: path.join(repoRoot, 'templates'),
+      extension: '.md',
+    },
+    {
+      label: 'gates/',
+      dirPath: path.join(repoRoot, '.omp/extensions/harness/gates'),
+      extension: '.mjs',
+    },
+  ];
+  const filesToCheck = ['README.md', 'README.en.md', 'INDEX.md', 'AGENTS.md']
+    .map((relativePath) => path.join(repoRoot, relativePath))
+    .filter((filePath) => fs.existsSync(filePath));
+
+  for (const filePath of filesToCheck) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const relativePath = toRepoPath(filePath);
+
+    const skillRefs = extractSkillRefs(content);
+    for (const skillName of skillRefs) {
+      if (!skillNames.has(skillName)) {
+        addIssue(FAIL, 'Missing referenced skill', {
+          source: relativePath,
+          skill: `/${skillName}`,
+          reason: 'command is referenced in docs but matching .omp/skills entry does not exist',
+        });
+      }
+    }
+
+    const hookRefs = extractHookRefs(content);
+    for (const hookName of hookRefs) {
+      if (!hookNames.has(hookName) && !githookNames.has(hookName)) {
+        addIssue(FAIL, 'Missing referenced hook', {
+          source: relativePath,
+          hook: hookName,
+          reason: 'hook is referenced in docs but no matching gate CLI or .githooks file exists',
+        });
+      }
+    }
+
+    for (const claim of structureCountClaims) {
+      const claimedCount = extractCountClaim(content, claim.label);
+      if (claimedCount === null) {
+        continue;
+      }
+
+      const { totalCount, contentCount } = countImmediateFiles(claim.dirPath, claim.extension);
+      if (claimedCount !== totalCount && claimedCount !== contentCount) {
+        addIssue(FAIL, 'Structure count mismatch', {
+          source: relativePath,
+          target: claim.label,
+          claimed: String(claimedCount),
+          actual: `${totalCount} total / ${contentCount} excluding INDEX`,
+          reason: 'documented structure count does not match repo contents',
+        });
+      }
+    }
+  }
+}
+
+function extractCountClaim(content, label) {
+  const escapedLabel = escapeRegExp(label);
+  const pattern = new RegExp(`${escapedLabel}[^\\n]*\\((\\d+)(?:개)?\\)`, 'i');
+  const match = content.match(pattern);
+  return match ? Number(match[1]) : null;
+}
+
+function countImmediateFiles(dirPath, extension) {
+  if (!fs.existsSync(dirPath)) {
+    return { totalCount: 0, contentCount: 0 };
+  }
+
+  const fileNames = fs.readdirSync(dirPath).filter((name) => name.endsWith(extension));
+  const totalCount = fileNames.length;
+  const contentCount = fileNames.filter((name) => name.toLowerCase() !== `index${extension}`).length;
+
+  return { totalCount, contentCount };
+}
+
+function stripFencedCodeBlocks(content) {
+  const lines = content.split(/\r?\n/);
+  const strippedLines = [];
+  let activeFence = '';
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (!activeFence) {
+        activeFence = marker;
+      } else if (activeFence === marker) {
+        activeFence = '';
+      }
+      strippedLines.push('');
+      continue;
+    }
+
+    strippedLines.push(activeFence ? '' : line);
+  }
+
+  return strippedLines.join('\n');
+}
+
+function extractSkillRefs(content) {
+  const refs = new Set();
+  // `/skill:<name>` is the OMP invocation form; bare `/<name>` shorthand is
+  // also accepted. A bare `/skill` capture (e.g. the literal prefix in the
+  // phrase "`/skill:<이름>`") is the invocation syntax itself, not a skill.
+  const inlinePattern = /`\/(?:skill:)?([a-z0-9-]+)(?!\/)\b[^`]*`/gi;
+  const fencedLines = extractFencedCodeLines(content);
+  let match;
+
+  while ((match = inlinePattern.exec(content)) !== null) {
+    const ref = match[1].toLowerCase();
+    if (ref !== 'skill') refs.add(ref);
+  }
+
+  for (const line of fencedLines) {
+    const commandMatch = line.match(/^\s*\/(?:skill:)?([a-z0-9-]+)(?!\/)\b/i);
+    if (commandMatch) {
+      const ref = commandMatch[1].toLowerCase();
+      if (ref !== 'skill') refs.add(ref);
+    }
+  }
+
+  return refs;
+}
+
+function extractHookRefs(content) {
+  const refs = new Set();
+  const lines = content.split(/\r?\n/);
+
+  for (const line of lines) {
+    if (!/(hook|hooks|훅|gate|gates|게이트)/i.test(line)) {
+      continue;
+    }
+
+    const codeSegments = line.match(/`([^`]+)`/g) || [];
+    for (const segment of codeSegments) {
+      const value = segment.slice(1, -1);
+      const pathMatch = value.match(/\.omp\/extensions\/harness\/gates\/([A-Za-z0-9._-]+)\.mjs/);
+      if (pathMatch) {
+        refs.add(pathMatch[1]);
+        continue;
+      }
+
+      const bareMatch = value.match(/^([a-z0-9]+(?:-[a-z0-9]+)+)$/i);
+      if (bareMatch) {
+        refs.add(bareMatch[1]);
+      }
+    }
+  }
+
+  return refs;
+}
+
+function extractFencedCodeLines(content) {
+  const lines = content.split(/\r?\n/);
+  const codeLines = [];
+  let activeFence = '';
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (!activeFence) {
+        activeFence = marker;
+      } else if (activeFence === marker) {
+        activeFence = '';
+      }
+      continue;
+    }
+
+    if (activeFence) {
+      codeLines.push(line);
+    }
+  }
+
+  return codeLines;
+}
+
+function getDirectoryNames(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    return new Set();
+  }
+
+  return new Set(
+    fs.readdirSync(dirPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
+  );
+}
+
+function getHookNames(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    return new Set();
+  }
+
+  return new Set(
+    fs.readdirSync(dirPath)
+      .filter((name) => name.endsWith('.mjs'))
+      .map((name) => name.replace(/\.mjs$/, '')),
+  );
+}
+
+// Independent VERIFICATION lane for the closeout flow (closeout_contract.md). The
+// trigger lane (compr/compush) is best-effort/agent-run; this checks state CONSISTENCY
+// at pre-push WITHOUT trusting the trigger. All WARNING (low-friction), never FAIL.
+// Pure (no I/O) for unit-testing; the wrapper reads the files.
+//   - Orphan: current-scope.md exists but no active seed (stale tracking artifact).
+//   - Half-closed: seed is done/superseded but current-scope.md wasn't retired.
+//   - Closeout pending: all AC checked under an active seed, but it isn't `done` yet.
+function closeoutConsistency(seedContent, scopeContent) {
+  const out = [];
+  if (scopeContent == null) return out;                 // no tracking artifact -> nothing to verify
+  const m = seedContent != null ? seedContent.match(/^status:\s*["']?(\w+)/m) : null;  // tolerate quoted YAML
+  const status = m ? m[1].toLowerCase() : null;
+  if (status === null) {
+    out.push({ title: 'Orphan current-scope', reason: 'current-scope.md exists but no active seed (seed.yaml absent or has no status) -- stale tracking artifact; run closeout or remove it' });
+    return out;
+  }
+  if (status === 'done' || status === 'superseded') {
+    out.push({ title: 'Closeout incomplete (half-closed)', reason: `seed status:${status} (closed) but current-scope.md was not retired -- closeout should delete it` });
+    return out;
+  }
+  // active seed (draft/approved): complete-but-not-closed? (mirror acceptance-gate AC parse)
+  const acMatch = scopeContent.match(/## Acceptance Criteria\s*\n([\s\S]*?)(?=\n##|\n*$)/i);
+  if (!acMatch) return out;
+  const section = acMatch[1];
+  const total = (section.match(/- \[[ x]\]/g) || []).length;
+  const unchecked = (section.match(/- \[ \]/g) || []).length;
+  // Only `approved` is closeout-trackable (the trigger lane closes only approved seeds);
+  // a `draft` with all AC checked is an odd pre-approval state, not a closeout-pending lapse.
+  if (status === 'approved' && total > 0 && unchecked === 0) {
+    out.push({ title: 'Closeout pending', reason: `all ${total} acceptance criteria are checked but seed status:${status} (not done) -- run closeout (compr/compush) to mark done + retire scope` });
+  }
+  return out;
+}
+
+function checkCloseoutConsistency() {
+  const seedPath = path.join(repoRoot, 'docs/harness/seed.yaml');
+  const scopePath = path.join(repoRoot, 'docs/harness/current-scope.md');
+  const scopeContent = fs.existsSync(scopePath) ? fs.readFileSync(scopePath, 'utf8') : null;
+  const seedContent = fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : null;
+  for (const w of closeoutConsistency(seedContent, scopeContent)) {
+    addIssue(WARNING, w.title, { file: 'docs/harness/current-scope.md', reason: w.reason });
+  }
+}
+
+function addIssue(severity, title, details) {
+  const detailEntries = Object.entries(details)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}:${value}`);
+  const issueKey = [severity, title, ...detailEntries].join('|');
+
+  if (issues.some((issue) => issue.key === issueKey)) {
+    return;
+  }
+
+  issues.push({
+    key: issueKey,
+    severity,
+    title,
+    details,
+  });
+}
+
+function hasFailures() {
+  return issues.some((issue) => issue.severity === FAIL);
+}
+
+function printReport() {
+  const failures = issues.filter((issue) => issue.severity === FAIL);
+  const warnings = issues.filter((issue) => issue.severity === WARNING);
+
+  let status = 'OK';
+  if (failures.length > 0) {
+    status = 'FAIL';
+  } else if (warnings.length > 0) {
+    status = 'WARN';
+  }
+
+  console.log(`[docs:drift] ${status} (${failures.length} errors, ${warnings.length} warnings)`);
+
+  if (failures.length === 0 && warnings.length === 0) {
+    return;
+  }
+
+  if (failures.length > 0) {
+    console.log('');
+    console.log('FAIL:');
+    printIssueBlock(failures);
+  }
+
+  if (warnings.length > 0) {
+    console.log('');
+    console.log('WARNING:');
+    printIssueBlock(warnings);
+  }
+}
+
+function printIssueBlock(group) {
+  group.forEach((issue, index) => {
+    console.log(`${index + 1}. ${issue.title}`);
+    for (const [key, value] of Object.entries(issue.details)) {
+      console.log(`   - ${formatDetailKey(key)}: ${value}`);
+    }
+  });
+}
+
+function formatDetailKey(key) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function toRepoPath(filePath) {
+  return path.relative(repoRoot, filePath).replace(/\\/g, '/');
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+if (require.main === module) {
+  main();
+}
+
+// Exported for unit tests (.omp/extensions/harness/tests/docs-drift.test.mjs). When required as a
+// module, main() does not run (guarded above) so the checks have no side effects.
+module.exports = { computeReachableHooks, getHookScriptRootPaths, refDocStaleSeverity, getRegisteredHookPaths, closeoutConsistency };

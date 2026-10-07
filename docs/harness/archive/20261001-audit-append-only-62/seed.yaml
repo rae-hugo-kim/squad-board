@@ -1,0 +1,55 @@
+name: audit-append-only-62
+status: done
+completed: 2026-10-01
+version: 1
+task_id: "20261001-101549-7cce"
+# gh-loop 사후 seed: 이슈 #62 본문(PR #59 3-pass 리뷰 r4/r8 low — closeout §3c가 audit.jsonl의
+# 삭제·교체 행을 보지 않음)이 근거·제안·완료 기준을 담고 있어 kickoff 인터뷰는 생략(closeout-ac-record-56 선례).
+# 직전 seed(closeout-ac-record-56, done)는 docs/harness/archive/20260929-closeout-ac-record-56/seed.yaml로 보관.
+goal: >
+  acceptance-gate의 closeout 판정 (c)가 docs/harness/audit.jsonl에 task_closed 행이 추가됐는지만 보고
+  기존 행의 삭제·교체를 보지 않는 구멍(#62)을 막는다 — 커밋이 audit.jsonl의 기존 줄을 하나라도 지우면
+  §3c 미완("audit.jsonl is not append-only")으로 판정해 백스톱으로 보낸다.
+
+constraints:
+  - git 상태 변경(커밋·푸시)과 GitHub 상태 변경(라벨·댓글·PR)은 gh-loop 절차 안에서만, 머지는 사용자 명시 승인 시에만
+  - 소비 레포에 동기화되는 경로(.omp/extensions/harness, docs/rules)만으로 동작해야 한다
+  - 게이트는 fail-closed — 판정 불가는 미완 쪽으로
+
+acceptance_criteria:
+  - id: AC1-deleted-row-incomplete
+    title: closeout 커밋의 audit.jsonl diff에 기존 행의 삭제(`-` 줄, 헤더 제외)가 하나라도 있으면 §3c를 미완으로 판정하고 사유에 "not append-only"가 나온다
+    source: https://github.com/rae-hugo-kim/omp/issues/62
+    must:
+      - "acceptance-gate.mjs closeoutState() (c): task_closed 행 대조와 별개로 `-` 줄 존재 시 incomplete — plain commit(인덱스)·-a(워크트리)·hook 모드 동일"
+  - id: AC2-append-only-lands
+    title: 추가만 있는 기존 closeout landing은 그대로 allow된다(기존 closeout 테스트 전부 통과)
+    source: https://github.com/rae-hugo-kim/omp/issues/62
+    must:
+      - "기존 `closeout landing` 케이스 회귀 없음"
+  - id: AC3-regression-test-docs
+    title: 회귀 테스트 1건 이상이 acceptance-gate.test.mjs에 추가되고, closeout_contract.md §3c에 append-only 조건이 반영되며 전체 스위트·docs-drift가 통과한다
+    source: https://github.com/rae-hugo-kim/omp/issues/62
+    must:
+      - "tests/acceptance-gate.test.mjs `#62 …` 케이스 (hermetic git 리포에서 실제 게이트 실행)"
+      - "node --test .omp/extensions/harness/tests/*.test.mjs 전부 통과, node scripts/docs-drift OK"
+
+out_of_scope:
+  - "Check 3가 인덱스가 아닌 워크트리 scope를 읽는 문제(#61), docs-drift closeoutConsistency 구 파서(#60)"
+  - "audit.jsonl의 과거 행 내용 검증(JSON 유효성 등) — 삭제·교체 유무만 본다"
+  - "머지 자체 (사용자 승인으로만)"
+
+assumptions:
+  - "audit.jsonl은 append-only 로그다(docs/rules/closeout_contract.md §3c, 통합 계약 Merge-resolution scope의 union 해결 전제)"
+  - "git diff의 `-` 줄은 `---` 헤더를 제외하면 모두 기존 행의 삭제 또는 교체다"
+
+risks:
+  - "정당한 정정 커밋(예: 7838844의 깨진 행 수정)이 closeout 커밋과 겹치면 미완으로 판정된다 — 정정은 별도 커밋으로 분리하면 된다(백스톱 경고가 사유를 안내)"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/62
+    reason: 원 이슈 (근거·제안)
+  - path: https://github.com/rae-hugo-kim/omp/pull/59
+    reason: 출처 리뷰 라운드(r4 low / r8 low)
+  - path: docs/rules/closeout_contract.md
+    reason: §3c closeout 계약

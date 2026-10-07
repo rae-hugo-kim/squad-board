@@ -1,0 +1,64 @@
+name: cross-repo-guard-15
+status: done
+completed: 2026-10-07
+version: 1
+task_id: "20261006-064353-6223"
+# gh-loop worker Stage 2에 따라 이슈 #15 본문(관측 사건·코드 근거·4부 제안·AC)과 "세션에서 직접 결정함" 댓글(A — ①②③만, ④ 제외)을 명세로 삼습니다.
+# 직전 완료 seed(gh-loop-dispatch-closeout-record-79)는 git 이력에 보존합니다.
+goal: >
+  세션 리포 밖 리포에 대한 변경·커밋이 세션 리포의 규율·게이트로 처리되는 갭을 명령 층에서 닫습니다 —
+  ① 외부 리포 파일 mutation(edit/write + bash 리터럴 경로)은 그 리포의 규율 파일 read가 read-log에 증명될 때까지 BLOCK,
+  ② 규율·하네스를 가진 외부 리포 대상 git commit/push는 read와 무관하게 BLOCK + 대상 리포 세션 안내(파싱 불가 형태는 fail-closed),
+  ③ docs/harness/acceptance-done은 mtime 기준 24h 만료(stale은 무시 + 경고).
+constraints:
+  - "④(외부 리포 read/grep/glob 차단)와 '없음 확인' 기록은 구현하지 않습니다(2026-10-06 세션 결정 A)."
+  - "레포 루트 해석은 gates/repo-root.mjs 한 곳(repoToplevel·repoIdentity)에 두어 #57·#58(실효 cwd toplevel 기준 state dir)이 재사용합니다. 리포 동일성은 common git dir의 realpath입니다 — 같은 리포의 Orca 링크드 워크트리는 외부 리포가 아닙니다."
+  - "② 차단은 규율 파일(AGENTS.md > CLAUDE.md > .cursorrules) 또는 .omp/extensions/harness를 가진 대상 리포에 한합니다 — 하네스·규율이 없는 리포(sum skill의 sum-vault, `git -C <vault> commit/push`)는 기존 '관할 밖' 의미론대로 통과합니다(harness_integration_contract 'Out-of-jurisdiction repos', sum SKILL.md:175)."
+  - "명령 층 철자 열거(denylist)를 재개하지 않습니다: 대상 리포 해석은 commitTargetDir과 같은 정적 리졸버(-C 체인·리터럴 cd·bash -c 재귀)이고, 해석 불가는 fail-closed입니다(20260729 seed constraint 준수)."
+  - "review-skip은 이미 diff-hash 바인딩 + 1회 소비형이므로 변경하지 않습니다(기존 review-gate 테스트가 negative case를 고정)."
+  - "#47·#78·#30·#29가 작업 중인 파일(scripts/harness-version-bump.sh, CHANGELOG.md, gh-loop-issue.mjs, gh-loop/gh-fanout SKILL.md, .github/workflows, templates/github-workflows, 규칙 감사 문서)은 건드리지 않습니다."
+  - "Stage 2의 체크 완료 seed·scope → 코드 커밋(앞에 reviewer 3-pass) → 리뷰 후속 → closeout 커밋 순서를 따릅니다."
+acceptance_criteria:
+  - id: AC1
+    title: "세션 리포 밖 파일에 대한 edit/write(및 bash 리터럴 경로 mutation: rm/mv/cp/tee/sed -i/출력 리다이렉션 등)가 대상 리포 규율 파일(AGENTS.md > CLAUDE.md > .cursorrules) read 증명 없이는 tool_call에서 {block:true}로 BLOCK됩니다 (negative test: 미로드 상태의 외부 write/edit/bash → block)."
+  - id: AC2
+    title: "대상 리포 규율 파일을 read(read-log.txt에 기록)한 뒤에는 동일 mutation이 통과하고, 규율 파일이 없는 외부 리포는 경고만 남기고 통과합니다 (positive test 쌍)."
+  - id: AC3
+    title: "규율·하네스를 가진 외부 리포 대상 git commit/push는 read 증명과 무관하게 BLOCK되고 대상 리포 세션(cwd = 대상 리포) 안내를 출력합니다 — `cd X && git commit`, `git -C X commit`, `git -C X push`, bash -c 래핑 네 형태 모두 (negative test)."
+  - id: AC4
+    title: "대상 리포를 정적으로 해석할 수 없는 커밋/푸시 명령(`cd \"$DIR\" && git commit`, `pushd`, `eval`, `env -C`, 커밋이 감지됐는데 대상이 0개)은 fail-closed로 BLOCK되고 해석 불가 사유를 출력합니다 (negative test)."
+  - id: AC5
+    title: "docs/harness/acceptance-done은 mtime 기준 24h 뒤 만료됩니다: stale 플래그는 무시되고 'HARNESS WARNING … stale' 경고가 출력되며(negative test: 2일 전 mtime → 미체크 AC로 exit 2), 신선한 플래그는 기존대로 통과합니다. review-skip의 diff-hash 바인딩은 기존 그대로입니다."
+  - id: AC6
+    title: "회귀 없음: 세션 리포 내 mutation/commit과 같은 리포의 git 링크드 워크트리(Orca 카드) 대상 edit·commit은 외부 리포로 판정되지 않고 통과하며(positive/negative 쌍: 워크트리 vs 별도 리포), 하네스 suite(node --test .omp/extensions/harness/tests/*.test.mjs) 전부 통과, node scripts/docs-drift 0 errors/0 warnings, 이 이슈의 dispatch 튜플이 audit.jsonl에 gh_loop_dispatched(issue 15)로 있습니다."
+out_of_scope:
+  - "④ 외부 리포 read/grep/glob 차단과 '규율 파일 없음 확인' 기록 — 결과를 써 본 뒤 재검토합니다(2026-10-06 결정)."
+  - "#57·#58 자체(실효 cwd toplevel 기준 harness-state 경로, verify-commands.json의 HEAD 읽기) — 이번에는 공유 함수만 제공합니다."
+  - "git add/checkout/reset 등 commit/push 외 git 쓰기 서브커맨드의 외부 리포 판정, `$VAR` 경로의 bash mutation, eval/MCP가 띄운 셸 — 문서화된 잔존면입니다."
+  - "CHANGELOG.md 항목은 #47(CHANGELOG 헤더 작업)과의 충돌을 피해 머지 뒤 별도 커밋으로 남깁니다."
+  - "PR 생성·교차검증 게시·head와 nonce 결정 요청은 커밋 뒤 후속 절차이며 AC 선체크 대상이 아닙니다."
+assumptions:
+  - "시작 HEAD는 PR #81이 머지된 0f205a7이고 작업트리는 깨끗했습니다(워크트리 rae-hugo-kim/gh-loop-issue-15)."
+  - "커밋 집행은 2026-07-30 재설계대로 대상 리포의 .githooks/pre-commit에서 일어나므로, ②의 보호 대상은 '세션 규율·scope와 대상 리포 훅이 어긋나는' 규율·하네스 보유 리포입니다."
+risks:
+  - "②를 모든 외부 리포에 적용하면 sum skill의 vault 백업(`git -C <vault> commit/push`)이 깨집니다 — 관할 판정(규율 파일·하네스 보유)으로 한정하고 결정 요청에 명시합니다."
+  - "bash mutation 판정은 리터럴 경로에 한하므로 `$VAR`·서브셸 cd 복원 등은 놓칩니다(잔존면으로 문서화, ①의 AC는 edit/write + 리터럴 bash에 한함)."
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/15
+    reason: "관측 사건·코드 근거·4부 제안·AC·세션 직접 결정(A)·모델 마커의 원문입니다."
+  - path: .omp/extensions/harness/gates/git-commit-detect.mjs
+    reason: "재사용하는 셸 렉서·commitTargetDir(-C 체인 정적 리졸버)과 isGitCommit의 fail-closed 편향입니다."
+  - path: .omp/extensions/harness/gates/context-gate.mjs
+    reason: "①이 같은 결로 쓰는 read-log.txt 증명 방식입니다."
+  - path: .omp/extensions/harness/gates/acceptance-gate.mjs
+    reason: "③이 바꾸는 acceptance-done Check 1입니다."
+  - path: .omp/rules/harness-harness_integration_contract.md
+    reason: "관할 밖 리포 의미론과 잔존면 목록을 갱신하는 문서입니다."
+  - path: docs/rules/closeout_contract.md
+    reason: "AC 착지·seed 종료·scope 은퇴·감사 append 순서를 정의합니다."
+estimate:
+  risk: high
+  files: 8
+  depth: high
+  model: anthropic/claude-fable-5-1
+  effort: xhigh

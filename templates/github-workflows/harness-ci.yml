@@ -1,0 +1,85 @@
+# harness-ci — server-side backstop for the local harness gates (issue #30).
+#
+# Three independent checks on GitHub-hosted runners, on push to main and on every pull request:
+#   1. archive-leak  — fails when docs/sum, docs/reviews or docs/brainstorming are TRACKED in the
+#                      checked-out (committed) tree. Reuses .githooks/pre-push verbatim — the same
+#                      gate that blocks a local push — so the path list lives in one place.
+#   2. harness-suite — node --test over the harness gate tests.
+#   3. docs-drift    — node scripts/docs-drift (FAIL-severity drift fails the job).
+#
+# This file is identical in two places: .github/workflows/harness-ci.yml (live in the omp source
+# repo) and templates/github-workflows/harness-ci.yml (a TEMPLATE that consumer repos copy ONCE;
+# the harness sync never touches .github/ — see templates/github-workflows/README.md). Keep the two
+# byte-identical.
+#
+# It only reports: it does not block merges unless you make the checks required in branch protection
+# (a separate decision), and it holds read-only permissions and no secrets.
+#
+# ADJUST per repo: the `branches:` list (e.g. master), the Node version, and the test glob in the
+# harness-suite job.
+
+name: harness-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded PR runs only; every push to main keeps its own record.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  archive-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: pre-push also runs scripts/docs-drift when it exists (source repo),
+          # and docs-drift reads `git log` for AGENTS.md.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          # pre-push runs scripts/docs-drift with node when it exists.
+          node-version: 22
+      - name: Tracked local-archive files (same logic as the local pre-push gate)
+        run: bash .githooks/pre-push
+
+  harness-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: two suite tests run scripts/docs-drift against the real repo, and it reads
+          # `git log` for AGENTS.md (a shallow clone stamps the wrong source_commit_hash — measured red
+          # on the first PR run, #30).
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Harness gate tests
+        # ADJUST: the glob if your repo keeps harness tests elsewhere or adds its own suite.
+        run: node --test .omp/extensions/harness/tests/*.test.mjs
+
+  docs-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Docs drift
+        # scripts/docs-drift is source-repo only (not on the sync whitelist); in a consumer repo
+        # this step is a no-op. Delete the job if you do not want the empty check.
+        run: |
+          if [ -f scripts/docs-drift ]; then
+            node scripts/docs-drift
+          else
+            echo "::notice::scripts/docs-drift not present in this repo — skipped"
+          fi

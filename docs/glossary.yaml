@@ -1,0 +1,40 @@
+# Project Glossary
+# Canonical terminology for this project. See docs/rules/glossary_policy.md for usage.
+
+version: 1
+
+terms:
+  - term: "seed"
+    aliases: ["seed.yaml", "seed file"]
+    meaning: "kickoff 결과물인 구조화된 YAML 명세. startdev와 hooks의 1급 입력"
+    context: "docs/harness/seed.yaml"
+
+  - term: "harness"
+    aliases: ["하네스", "test harness"]
+    meaning: "kickoff-startdev 워크플로우를 제어하는 게이트, 스킬, 규칙의 집합"
+    context: "docs/harness/, .omp/extensions/harness/gates/"
+
+  - term: "rubric"
+    aliases: ["루브릭", "명확도 판정"]
+    meaning: "seed의 4차원 품질 판정 (goal/constraint/success/context clarity)"
+    context: "docs/harness/rubric-report.md"
+
+  - term: "acceptance-gate"
+    aliases: ["수락 게이트", "AC gate"]
+    meaning: "수락 기준 미충족 시 git commit을 차단하는 tool_call 게이트"
+    context: ".omp/extensions/harness/gates/acceptance-gate.mjs"
+
+  - term: "kickoff"
+    aliases: ["킥오프"]
+    meaning: "구현 전 JTBD-Context-Scope-AC-Backpressure 인터뷰 스킬"
+    context: "/skill:kickoff"
+
+  - term: "startdev"
+    aliases: ["스타트데브"]
+    meaning: "TDD 게이트가 강제되는 구현 시작 스킬"
+    context: "/skill:startdev"
+
+  - term: "audit log"
+    aliases: ["감사 로그", "audit.jsonl"]
+    meaning: "append-only JSONL 이벤트 기록"
+    context: "docs/harness/audit.jsonl"

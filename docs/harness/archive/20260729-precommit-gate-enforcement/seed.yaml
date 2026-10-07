@@ -1,0 +1,149 @@
+name: precommit-gate-enforcement
+status: done
+completed: 2026-07-31
+version: 4
+task_id: "20260729-132948-e510"
+# v1→v2: plan-attack run 1 반영. v2→v3: 위험 가중치 재평가로 최소화 (사용자 결정).
+# v3→v4: test-attack run 1 (BLOCK: CRIT 2·HIGH 8·MED 8, 전건 git 2.43.0 실측) 반영 —
+# 백스톱 훅 의미론 정정(A-1), GIT_INDEX_FILE 상속 계약(A-2), tripwire 키-값 검사(A-3),
+# wip 설계 확정(A-4) 등. 대장: docs/harness/test-attack-report.md
+goal: >
+  커밋 게이트 집행을 명령 문자열 층위에서 git 실행 경계로 이전합니다. 차단면은
+  .githooks/pre-commit 하나입니다 — 브랜치 히스토리에 새 미검증 diff를 올리는
+  커밋 경로(plain/amend/merge-충돌해소)에서 게이트 4종(acceptance/backpressure/
+  review/archive)을 index 확정 시점에 "커밋 대상 레포"에서 실행합니다. 통합
+  경로(merge 자동커밋·cherry-pick·revert·rebase)는 이미 게이트를 통과한 커밋의
+  이동이므로 차단하지 않고, 비블로킹 관찰 훅(post-commit + post-merge)의 백스톱이
+  게이트 미경유 커밋을 사후 관찰(advisory)합니다. 관할 의미론: 하네스 훅이
+  활성화된 레포만 관할이며 비활성 레포 커밋은 의도된 관할-밖 skip. 본질은
+  삭감입니다: 철자-열거 denylist(~2,000행급)와 철자 테스트를 걷어내 코드 순감,
+  블로킹 표면은 1개로 수렴.
+
+constraints:
+  - 철자-열거 denylist 확장 재개 금지 — 잔존 감시면은 git-정의 유한면(문서화된 우회 플래그·env 키-값)으로 한정
+  - 신설 블로킹 훅은 pre-commit 하나 — 통합 경로 블로킹 장치 금지. post-commit/post-merge/post-rewrite는 비블로킹 관찰만
+  - 훅 실행 시 node 부재면 fail-closed — node 검색은 PATH → $OMP_NODE_BIN 순, 실패 시 커밋 차단 + 복구 안내(nvm GUI/cron 케이스 명시). 사람 비상구는 --no-verify 문서화
+  - 훅 차단 메시지는 "HARNESS BLOCK:" 프리픽스 + 수정-지시형 본문 (에이전트 재시도 루프 방지 계약)
+  - 기존 .githooks/pre-push·post-commit 보존, core.hooksPath=.githooks 활성화 경로 유지
+  - 7/24 미커밋 하드닝은 흡수 — absorption-manifest.md의 파일·헌크 분류를 따름 (isGitCommit export는 breadcrumb-tracker 소비자로 유지)
+  - 위협 모델은 "성급한 에이전트"이며 악의적 회피자가 아님 — adversary-proof 완전성 비목표 (3-pass 리뷰 입력에 명시)
+  - pre-commit 시점 커밋 메시지 스크래핑(.git/COMMIT_EDITMSG) 금지 — 직전 커밋 메시지를 반환해 오판정 (실측 rE)
+  - git 상태 변경(커밋·푸시)은 사용자 명시 지시 시에만
+
+acceptance_criteria:
+  - id: AC1-precommit-enforcement
+    title: pre-commit 훅이 새-콘텐츠 커밋 경로 전체에서 게이트를 집행한다
+    source: "kickoff Phase 3 + plan-attack A1 + test-attack A-1/A-5/A-6/B-1/B-3/C-1 처분 (2026-07-29)"
+    must:
+      - "plain commit·amend·merge-충돌해소 커밋: .githooks/pre-commit이 게이트 4종 실행, exit 2면 커밋 불성립"
+      - "hermetic env 자동 케이스로 세션 밖(사람) 커밋 실증 (env -i + shim PATH 레시피 — 수동 절차 아님)"
+      - "node 부재: PATH → $OMP_NODE_BIN 순 탐색 실패 시 fail-closed(커밋 차단 + nvm/GUI 안내)"
+      - "훅 경로에 crash/timeout fail-closed 재구현: 자식별 예산+SIGKILL은 디스패처가 보유, 훅 스크립트는 가용 시 timeout(1) belt — hung 자식이 git commit을 무기한 정지시키지 않음"
+      - 철자 무관성 스모크 1건 (예 git -c alias.c=commit c — 훅 도달 확인)
+      - "백스톱(비블로킹 관찰): post-commit + post-merge 훅으로 게이트 미경유 커밋 감지 시 advisory 경고 — merge 자동커밋은 post-commit을 발화하지 않음(실측 r4), cherry-pick/revert/replay-rebase는 post-commit 발화(r2/r3), post-rewrite 이중 관찰은 중복 제거"
+      - "harness-sync.sh 동기화 목록에 .githooks/pre-commit(+post-merge) 열거 — 배선 단언 테스트 포함 (consumer 배포 누락 방지)"
+      - "동시 커밋 index.lock 패자(rc=128)는 하네스 차단이 아님 — 구분 안내 케이스 1건"
+      - "sparse-checkout(cone)의 .githooks 제거 = 훅 침묵 무효화 — 관측 케이스 + AC5 잔여면 문서화"
+    verify:
+      - 임시 레포 통합 테스트 — plain/amend/충돌해소/human(hermetic)/no-node/철자 스모크 차단·허용 양방향 + 백스톱 경로별(merge/cherry-pick/revert/replay-rebase) + lock 경합 + sparse 관측
+  - id: AC2-cross-repo-attribution
+    title: 크로스레포 오귀속이 관할 판정 이전으로 소멸한다 (원 문제 해결 증명)
+    source: "plan-attack B3 처분"
+    must:
+      - "신규 픽스처로 실증: 자체 훅이 활성화된 consumer 픽스처 레포 + omp 세션 cwd에서의 커밋 → 대상 레포의 훅·스코프 문서로 판정"
+      - 하네스 미보유 레포 커밋은 관할-밖 skip (omp AC로 차단되는 오귀속 재현 불가)
+      - 7/24 픽스처는 매니페스트 분류대로 골격만 개작 (명령층 귀속 단언은 제거 대상)
+    verify:
+      - 신규 크로스레포 통합 테스트 (훅-in-대상레포 메커니즘 직접 운동)
+  - id: AC3-minimal-tripwire
+    title: 명령 문자열 층위가 최소 tripwire로 순감한다
+    source: "kickoff Phase 2 + plan-attack B2 + test-attack A-3/C-6 처분"
+    must:
+      - "tripwire 잔존 범위: --no-verify(유일-접두 축약 + 독립 별칭 -n)·core.hooksPath 재지정(-c/env/최상위 --git-dir·--work-tree)·GIT_* 리타게팅 env. canonical verb 감시 없음"
+      - "GIT_CONFIG_* env는 통짜 차단이 아니라 키-값 검사: hooksPath/worktree/gitdir/include 계열 값일 때만 차단, credential 등 무해 키는 통과 (Orca 런처 GIT_CONFIG_COUNT 회귀 방지 — 음성 테스트 필수)"
+      - 철자-열거 커밋 탐지(isCommitSuspect·commitIsStandalone·resolveCommitTarget 계열)가 제거된다 (isGitCommit 기본 export는 breadcrumb 소비자로 유지)
+      - "게이트 코드 순감을 양축으로 기록: HEAD(482행) 대비와 7/24 워킹트리(1,020행) 대비 모두"
+    verify:
+      - wc -l 양축 비교 기록 + tripwire 단위 테스트 (양성/음성)
+  - id: AC4-no-regression
+    title: 기존 게이트 스위트가 재구성 후에도 hermetic 환경에서 통과한다
+    source: "kickoff + test-attack C-5 처분"
+    must:
+      - 자식 게이트 4종 기존 스위트 통과 (훅-모드 어댑터 반영분 포함)
+      - "테스트 헬퍼가 상속 GIT_*를 제거(hermetic env) — 의도 주입만 픽스처가 얹음; 오염 불변 케이스(GIT_CONFIG_COUNT 주입에도 결과 동일) 포함"
+      - 재구성된 훅·tripwire 테스트 전체 통과
+    verify:
+      - node --test .omp/extensions/harness/tests/*.test.mjs (전 스위트, hermetic)
+  - id: AC5-docs-sync
+    title: 문서가 새 집행 구조와 동기화된다
+    source: "AGENTS.md 레포 규칙 + test-attack A-5/A-7/C-3 처분"
+    must:
+      - AGENTS.md Harness Enforcement 표가 훅 집행 구조를 반영한다
+      - README/README.en 게이트 서술 갱신 (기존 drift 2건 포함 해소)
+      - claudedocs/CLAUDEKR.md 동기화 또는 stale 명시
+      - "docs-drift의 게이트 도달성 모델을 훅 스포너 토폴로지로 갱신 + orphan 카나리아 단언(고아 게이트 심어 FAIL 확인)"
+      - "잔여면 문서화: 통합 경로 콘텐츠 출처 논증·백스톱 관찰 범위·--no-verify 사람 비상구·관할-밖 레포·stash(브랜치 밖 커밋 객체)·sparse-checkout 침묵 무효화·동시 커밋 lock 경합·위협모델 경계"
+    verify:
+      - node scripts/docs-drift (갱신된 도달성 모델로)
+  - id: AC6-hook-mode-adapter
+    title: 게이트 4종이 command 문자열 없이 훅 시점 입력으로 판정한다
+    source: "plan-attack A3/C2/C3 + test-attack A-2/A-4/B-2/B-4/C-2 처분"
+    must:
+      - "command 결합 제거: isGitCommit 조기종료·parseCommitForm 스코프 선택을 hook-mode 입력으로 대체"
+      - "환경 상속 계약: 훅이 받은 GIT_INDEX_FILE·GIT_DIR·GIT_PREFIX를 자식 게이트에 그대로 상속, cwd=훅 레포 토플레벨 고정 — -a/부분커밋의 임시 인덱스가 --cached에 정확히 보임(살균 금지). hook-mode에서 ambient GIT_* fail-closed 검사 미수행"
+      - "diff 스코프 고정: hook-mode form 명시 전달로 diffRanges가 항상 ['--cached'] — 무관한 unstaged 변경이 리스크를 견인하지 않음"
+      - "부작용·one-shot 소비 이전: pre-commit 시점 추적 파일 변형 0(status --porcelain 전후 동일) — audit 기록·review-skip/wip 플래그 소비는 post-commit에서. 훅 이후 단계 실패(빈 메시지 등) 시 상태 불변"
+      - "wip 판정: .omp/harness-state one-shot 플래그 정본 + OMP_COMMIT_WIP=1 env 병행. COMMIT_EDITMSG 스크래핑 금지"
+      - "evidence 모델명 검증기가 현세대 코드네임(fable/mythos — pre-version 위치)을 수용: 실측 리뷰 id(anthropic/claude-fable-5) 거부로 전 고위험 커밋이 차단되는 잠복 버그 해소 (scope-add 2026-07-30, U3f)"
+      - "차단 출력 계약: stderr에 HARNESS BLOCK: 프리픽스 + 게이트명 + 수정 지시 (재시도-금지 신호)"
+    verify:
+      - 어댑터 단위 테스트(mkdtemp 격리, -a·부분커밋 가시성 단언 포함) + 훅 경유 통합 테스트 판정 일치
+  - id: AC7-absorption-manifest
+    title: 7/24 미커밋분의 파일·헌크 단위 처분이 매니페스트로 결정된다
+    source: "plan-attack C1 처분"
+    must:
+      - "docs/harness/absorption-manifest.md — 유지/개작/폐기 분류와 근거 (2026-07-29 작성·C-4 반영 갱신 완료)"
+      - 유지 분류 테스트는 AC4 스위트에 포함, 폐기 분류는 AC3 순감 수치에 반영, hasHarnessMarker 채택/기각 시 매니페스트 갱신
+    verify:
+      - 매니페스트 존재 + AC3/AC4 수치와의 정합 대조
+
+out_of_scope:
+  - consumer 레포 8곳 실배포 (harness-sync 공식 경로 — 별도 후속 kickoff; sync 목록 배선까지는 AC1이 담당, 실배포·재클론은 후속)
+  - 통합 경로(merge 자동커밋·cherry-pick·revert·rebase)의 블로킹 — 콘텐츠 출처 논증, 백스톱이 관찰
+  - 의도적 회피 잔여면의 완전 봉쇄 (--no-verify 조합·sparse 악용 등 — 위협모델 밖, AC5 문서화)
+  - 샌드박스/OS 수준 집행 경계
+  - stash 경로의 관찰 (브랜치 히스토리 밖 — AC5 문서화만)
+
+assumptions:
+  - "게이트 판정 데이터는 파일 기반이나 입력 계약은 tool_input.command 결합 — 훅-모드 어댑터(AC6) 필요 (plan-attack 실측)"
+  - "훅 발화 매트릭스 (git 2.43.0 실측): pre-commit = plain/amend/충돌해소(및 -a/부분커밋은 임시 GIT_INDEX_FILE 하에서); post-commit = plain/amend/충돌해소/cherry-pick/revert/replay-rebase (merge 자동커밋 제외); post-merge = merge 자동커밋; ff-rebase·stash = 커밋 훅 무발화"
+  - "git은 훅에 GIT_DIR·GIT_INDEX_FILE(플레인: .git/index 상대경로, -a/부분: 임시 lock 절대경로)을 세팅한다 — 상속이 정확성의 전제"
+  - core.hooksPath는 이 레포에 이미 .githooks로 설정됨; 신규 클론 활성화는 bootstrap/migrate 책임
+  - "cherry-pick/revert/rebase 원본이 게이트 미경유 커밋인 경우는 잔여면 — 백스톱이 감지, AC5 문서화"
+
+risks:
+  - "interim 공백: denylist 제거 후 consumer 실배포 전까지 훅 미보유 consumer 커밋은 무게이트 — sync 목록 배선(AC1)으로 다음 배포에 자동 편입, 실배포 후속 kickoff 즉시 연결"
+  - "훅-경로 환경 민감성: GIT_INDEX_FILE 상속 계약 위반 시 빈 diff 통과(집행 공백) 또는 전면 차단의 양극단 (A-2) — AC6 가시성 단언으로 방어"
+  - 3-pass 리뷰의 adversary-proof 기준 재적용 압박 — 위협모델 constraint를 리뷰 입력에 명시
+  - node 부재 환경의 사람 커밋 마찰 (fail-closed의 대가 — OMP_NODE_BIN 탈출구 + 안내 품질로 완화)
+  - 훅 차단의 에이전트 재시도 루프 오해 — AC6 출력 계약으로 완화
+
+references:
+  - path: docs/harness/kickoff-summary.md
+    reason: kickoff 인터뷰 기록
+  - path: docs/harness/plan-attack-report.md
+    reason: v1→v3 개정 근거 (계획 공격 처분)
+  - path: docs/harness/test-attack-report.md
+    reason: v3→v4 개정 근거 (테스트 공격 18건 처분 대장)
+  - path: docs/harness/test-plan.md
+    reason: GATE 1 산출물 (v2 — 공격 반영)
+  - path: docs/harness/absorption-manifest.md
+    reason: AC7 산출물 — 7/24분 파일·헌크 처분
+  - path: .githooks/pre-push
+    reason: 훅 집행 선례
+  - path: .omp/extensions/harness/gates/commit-gates.mjs
+    reason: 디스패처 — hook-mode 이전 대상
+  - path: claudedocs/omp-17.1.5-harness-friction-plan.md
+    reason: GIT_CONFIG_* 런처 주입 사고 기록 (A-3 근거)
+  - path: docs/reviews/review-2026-07-24-183546.md
+    reason: 6차 리뷰 FAIL — 재설계 동기

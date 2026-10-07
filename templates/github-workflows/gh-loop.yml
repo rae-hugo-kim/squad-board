@@ -1,0 +1,87 @@
+# gh-loop autonomous runtime (autonomy Q2 → option A).
+#
+# INSTANTIATE-ONCE into a CONSUMER project at .github/workflows/gh-loop.yml (do NOT run from the
+# harness source repo). This ships via the harness `templates/` sync; `init`/`migrate` copies it once,
+# then it is YOURS to tune (force-sync never overwrites your instantiated .github/ copy).
+#
+# What it does: on an issue/comment event it runs the TESTED decision helper
+# (.omp/extensions/harness/gh-loop-runner.mjs) to choose start / resume / ignore, then — only on
+# start/resume — invokes YOUR headless agent CLI to run one gh-loop stage. It NEVER merges: the helper
+# returns no merge action and merge stays human-approved inside the agent run
+# (.omp/skills/gh-loop/SKILL.md). Untrusted event fields are passed via `env:` (not inlined into run),
+# the GitHub-recommended injection-safe pattern.
+#
+# Per-project prerequisites (NOT shipped by the harness — see README.md in this folder):
+#   - a SELF-HOSTED runner (an autonomous agent with repo write must NOT run on GitHub-hosted runners)
+#   - secret  GH_TOKEN            : a token with repo scope (issues/PRs/contents)
+#   - secret(s) for your agent CLI's model (e.g. ANTHROPIC_API_KEY)
+#   - var     GH_LOOP_BOT_LOGIN   : the login your agent acts as (so the loop excludes its own events)
+#   - your OMP/Claude-family agent CLI installed on the runner (the gh-loop skill uses `issue://` etc.)
+
+name: gh-loop
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  # Serialize per issue so concurrent events never double-act (Guard policy: option-A concurrency).
+  group: gh-loop-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  gh-loop:
+    # INSTANTIATE: your self-hosted runner label(s).
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve actor permission
+        id: perm
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.event.sender.login }}
+        run: |
+          perm="$(gh api "repos/$REPO/collaborators/$ACTOR/permission" -q .permission 2>/dev/null || echo none)"
+          echo "permission=$perm" >> "$GITHUB_OUTPUT"
+
+      - name: Decide (start / resume / ignore)
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+          STATE: ${{ github.event.issue.state }}
+          ACTOR: ${{ github.event.sender.login }}
+          PERM: ${{ steps.perm.outputs.permission }}
+          BOT_LOGIN: ${{ vars.GH_LOOP_BOT_LOGIN }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          decision="$(node .omp/extensions/harness/gh-loop-runner.mjs decide \
+            --event "$EVENT" --action "$ACTION" --labels "$LABELS" --state "$STATE" \
+            --actor "$ACTOR" --permission "$PERM" --bot-login "$BOT_LOGIN" --comment-body "$COMMENT_BODY")"
+          act="$(printf '%s' "$decision" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write((JSON.parse(s).action)||"ignore"))')"
+          echo "decision=$decision"
+          echo "action=$act" >> "$GITHUB_OUTPUT"
+
+      - name: Run gh-loop agent (start / resume only)
+        if: steps.decide.outputs.action == 'start' || steps.decide.outputs.action == 'resume'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          ACT: ${{ steps.decide.outputs.action }}
+          ISSUE: ${{ github.event.issue.number }}
+          # INSTANTIATE: your agent CLI model key(s), e.g. ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # INSTANTIATE: replace this with YOUR headless OMP/Claude-family agent CLI invocation.
+          # The agent reads issue://$ISSUE, runs the "$ACT" stage of the gh-loop skill, and per that
+          # skill NEVER auto-merges (merge requires explicit human approval inside the run). Example:
+          #   omp -p "/skill:gh-loop $ACT for issue #$ISSUE"
+          echo "PLACEHOLDER (instantiate your agent CLI): gh-loop $ACT for issue #$ISSUE"

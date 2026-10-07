@@ -1,0 +1,109 @@
+name: gate-friction-48
+status: done
+completed: 2026-09-26
+version: 1
+task_id: "20260925-130157-a48f"
+# 사후 작성 seed: 이슈 #48 본문(blender bench 브랜치에서 실측한 게이트·계약 마찰 6건)이
+# 증상·우회 수단·기대 동작을 담고 있어 kickoff 인터뷰는 생략(omp1830-friction 선례).
+# 코드 매핑은 scout(Issue48Map)로 완료. 직전 seed(omp1830-friction, done)는
+# docs/harness/archive/20260924-omp1830-friction/seed.yaml로 보관.
+# 착수 순서: ①AC1(코드, 5+6+#22) → ②AC2(코드) → ③AC3(코드) → ④AC4(코드+계약) → ⑤AC5(메시지+문서) → 범프 2026.82.
+goal: >
+  하네스 게이트가 자기 계약과 어긋나 override·WIP로만 통과되던 지점 6곳을 원천에서 정리한다 —
+  closeout 동일 커밋(§3d)과 acceptance-gate 백스톱의 충돌, review-gate의 자정 경계, VERIFY
+  목록의 프로젝트 확장 부재, post-commit AC의 순환, 막힌 커밋 뒤의 거짓 cycle-boundary 노트와
+  breadcrumb 오기록. 소비 리포에는 하네스 2026.82 한 범프로 전달한다.
+
+constraints:
+  - git 상태 변경(커밋·푸시·태그)과 GitHub 이슈 상태 변경은 사용자 명시 지시 시에만
+  - 소비 레포에 동기화되는 경로(rules/, .omp/extensions/harness, 하네스 스킬, docs/rules)만으로 동작해야 한다
+  - 하네스 MUST(안전·게이트·검증)는 완화하지 않는다 — 게이트 allow 경로는 상태(스테이지된 diff)에 키잉하고 명령 문자열·시각에 키잉하지 않는다
+  - 확장 파일 형식은 리터럴 접두사만 허용(정규식 금지) — 잘못된 등록이 게이트를 오작동시키지 않게
+  - AGENTS.md를 바꾸면 claudedocs/CLAUDEKR.md를 같은 커밋에서 미러한다
+
+acceptance_criteria:
+  - id: AC1-commit-landed
+    title: 커밋이 실제로 landing했을 때만 cycle-boundary 노트·breadcrumb 해시가 나온다 (#48-5, #48-6, #22)
+    source: https://github.com/rae-hugo-kim/omp/issues/48
+    must:
+      - "index.ts: git commit 명령의 tool_call에서 대상 리포 HEAD를 스냅샷(toolCallId 키), tool_result에서 HEAD 불변이면 cycle-boundary 노트·drift recheck를 건너뛰고 breadcrumb에 failed로 전달"
+      - "대상 리포 = `git -C <dir>` 인자 > bash tool cwd 입력 > 세션 cwd (git-commit-detect.mjs 헬퍼) — #22의 타 레포 오귀속이 같은 경로로 해소"
+      - "breadcrumb-tracker.mjs: 스냅샷 대비 HEAD가 바뀐 경우에만 hash 기록, 불변이면 result: BLOCKED(해시 없음)"
+      - "테스트: (a) HEAD 불변 픽스처 → 노트 없음·breadcrumb BLOCKED, (b) -C other 픽스처 → other 리포의 새 HEAD, (c) 정상 커밋 → 기존 동작 유지"
+  - id: AC2-closeout-same-commit
+    title: closeout 변경(seed approved→done)이 코드와 같은 커밋에 있으면 acceptance-gate가 allow한다 (#48-1)
+    source: https://github.com/rae-hugo-kim/omp/issues/48
+    must:
+      - "acceptance-gate.mjs: closed seed 분기에서 `git diff --cached -- docs/harness/seed.yaml`에 `-status: approved`/`+status: done` 전이가 있으면 closeout landing으로 allow(log), 없으면 기존 backstop"
+      - "tests/acceptance-gate.test.mjs:163 케이스를 '같은 커밋 closeout + code → allow'와 'dead seed(HEAD에서 이미 done) + code → BLOCK'으로 분리"
+      - "docs/rules/closeout_contract.md §3d 또는 비고에 게이트 판정 근거(스테이지된 전이) 1줄"
+  - id: AC3-review-window
+    title: review-gate가 어제 로컬 날짜의 사이드카도 읽는다 — 해시 바인딩이 관련성을 보장 (#48-2)
+    source: https://github.com/rae-hugo-kim/omp/issues/48
+    must:
+      - "review-gate.mjs: 사이드카 이름 필터를 오늘+어제(로컬 날짜) 두 접두사로 확장, MAX_SIDECARS·차단 메시지의 파일명 안내는 오늘 기준 유지"
+      - "tests/review-gate.test.mjs:186 '어제 → BLOCK'을 '어제+해시 일치 → PASS', '그제+해시 일치 → BLOCK'으로 교체"
+      - "rules/harness_integration_contract.md review-gate 절에 윈도우(오늘·어제) 명시"
+  - id: AC4-verify-commands
+    title: 프로젝트 고유 검증 명령을 docs/harness/verify-commands.json에 등록하면 backpressure가 인식한다 (#48-3)
+    source: https://github.com/rae-hugo-kim/omp/issues/48
+    must:
+      - "backpressure-patterns.mjs: classifyVerification(command, cwd)가 docs/harness/verify-commands.json({\"test\":[...],\"lint\":[...],\"build\":[...]} 리터럴 접두사)을 읽어 unwrap된 앞 토큰열과 접두사 일치 시 해당 종류로 분류; 파일 없음·파싱 실패·비문자열 항목은 무시(fail open to defaults)"
+      - "backpressure-tracker·backpressure-failure-tracker·breadcrumb-tracker 세 소비자가 cwd를 넘긴다"
+      - "테스트: 등록 접두사 `bash bpy/bench/run.sh` → test / 미등록 → null / 잘못된 JSON → 기본 동작"
+      - "rules/harness_integration_contract.md §3에 등록 파일 형식·위치 1단락, backpressure-gate 차단 메시지에 등록 파일 안내 1줄"
+  - id: AC5-post-commit-ac-guidance
+    title: 커밋 뒤에만 참인 AC는 규칙(cycle_definition.md)대로 후속 절차로 옮기도록 게이트가 안내한다 (#48-4)
+    source: https://github.com/rae-hugo-kim/omp/issues/48
+    must:
+      - "acceptance-gate.mjs 차단 메시지 Options에 '커밋 뒤에만 참인 항목(PR·태그·머지)은 AC가 아님 — rules/cycle_definition.md 참조, 후속 절차로 옮기고 체크박스에서 제거' 1줄"
+      - ".omp/skills/kickoff/SKILL.md AC 작성 지침에 같은 규칙 1줄 (새 마커 문법은 도입하지 않는다)"
+      - "테스트: 차단 메시지에 cycle_definition.md 안내 포함"
+  - id: AC6-bump-ready
+    title: 다섯 사이클이 하네스 2026.82 범프 준비 상태다 (테스트·CHANGELOG·리뷰·verifier)
+    must:
+      - "node --test .omp/extensions/harness/tests/*.test.mjs 전 항목 통과 (마지막 사이클 커밋 직전 포그라운드 실행)"
+      - "CHANGELOG.md [Unreleased]에 #48(항목별) #22 항목"
+      - "high-risk 커밋은 reviewer(3-pass) 사이드카가 staged diff 해시에 바인딩되고, verifier verdict가 도착한 뒤에만 커밋·완료 선언"
+      - "2026.82 태그는 마지막 커밋 직후 scripts/harness-version-bump.sh로 발행(별도 bump 커밋) — 이 AC의 판정 대상이 아님"
+
+out_of_scope:
+  - "#45 named service backpressure, #46 wiring 테스트 핸들러 캡처, #47 CHANGELOG 분할 — 독립 사이클"
+  - "post-commit AC 마커 문법 도입 — cycle_definition.md:78이 AC가 아니라고 결정했으므로 문법 없음"
+  - "verify-commands.json의 정규식 지원"
+  - "이슈 닫기·커밋·푸시 자체 (사용자 지시로만)"
+
+assumptions:
+  - "omp bash tool_call 이벤트에 toolCallId와 input.cwd가 있고 tool_result의 toolCallId가 같은 값이다 (omp://extensions.md 확인 후 착수, 다르면 command 문자열 키로 대체)"
+  - "pre-commit 훅 모드의 acceptance-gate는 스테이지된 인덱스를 본다(hookForm all:false) — closeout 변이는 `git diff --cached`에 나타난다"
+  - "review 사이드카는 저자 로컬 날짜로 이름 짓는다(review-gate.mjs:521 주석) — 게이트도 로컬 날짜로 어제를 계산하면 일관"
+
+risks:
+  - "HEAD 스냅샷을 tool_call에서 찍으면 명령 하나에 `git rev-parse` 프로세스 1개가 추가된다 — isGitCommit(command)일 때만 실행해 비용 한정"
+  - "closeout 전이 감지가 넓으면(예: status 줄 어디든 done) dead seed 위 코드 커밋이 새어 나간다 — `-status: approved` + `+status: done` 쌍을 모두 요구"
+  - "review 윈도우를 넓히면 자정 넘긴 stale 사이드카가 다른 커밋을 덮을 수 있다 — 해시 일치가 여전히 필수라 실질 위험 없음, MAX_SIDECARS는 합산으로 셈"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/48
+    reason: 마찰 6건 원문
+  - path: https://github.com/rae-hugo-kim/omp/issues/22
+    reason: git -C 타 레포 커밋 해시 오귀속 — AC1에서 같은 경로로 해소
+  - path: .omp/extensions/harness/index.ts
+    reason: bashRunFailed(L82)·bash tool_result 분기(L346-380)·CYCLE_BOUNDARY_NOTE(L150)
+  - path: .omp/extensions/harness/gates/acceptance-gate.mjs
+    reason: closed-seed 분기(L157-162)·backstop(L106-141)·차단 메시지(L242-250)
+  - path: .omp/extensions/harness/gates/review-gate.mjs
+    reason: today 계산(L521-525)·사이드카 필터(L655-684)
+  - path: .omp/extensions/harness/gates/backpressure-patterns.mjs
+    reason: VERIFY 표(L41-45)·classifySegment(L108)
+  - path: .omp/extensions/harness/gates/breadcrumb-tracker.mjs
+    reason: commit breadcrumb 해시(L36-43)
+  - path: rules/cycle_definition.md
+    reason: L78 "AC는 커밋 시점에 판정 가능해야 한다" — AC5 근거
+
+estimate:
+  risk: high
+  files: 16
+  depth: high
+  model: claude-fable-5-1
+  effort: medium

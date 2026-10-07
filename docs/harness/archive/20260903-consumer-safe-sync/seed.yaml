@@ -1,0 +1,73 @@
+name: consumer-safe-sync
+status: done
+completed: 2026-09-07
+version: 2
+task_id: "20260903-120000-c5a1"
+# 사후 작성 seed: 2026-09-03 세션에서 이슈 #17/#24/#26/#27/#28 + 핸드오프
+# (docs/harness/handoff_2026-09-02_sync-commit-gates.md, 후보 C 채택)를 사이클 1~4로
+# 분해해 진행한 작업의 AC를 코드 착지 전에 기록한다. 3-pass 리뷰 4회
+# (docs/reviews/review-2026-09-05-034520.json PASS WITH NOTES)로 검증됨.
+goal: >
+  init으로 시작한 소비 리포가 harness-check 동기화를 계속 받아도 깨지지 않게 한다.
+  게이트 테스트가 게이트와 같은 태그로 도착하고, 신규 화이트리스트 항목이 첫 sync에
+  착지하며, 훅이 실제로 활성화되고, 동기화 문서가 소비 리포에서 죽은 링크를 만들지
+  않으며, 소비자 고유 규칙·에이전트가 sync에 지워지지 않고, 순수 sync 커밋이
+  override 없이 커밋 게이트를 통과하되 사용자 코드가 섞이면 정상 판정된다.
+
+constraints:
+  - 화이트리스트 밖 사용자 공간(docs/, src/, .omp/rules/, 커스텀 agents/skills)은 sync가 절대 쓸지 않는다
+  - 커밋 게이트 면제의 근거는 워크트리 파일이 아니라 리포 객체 저장소(refs/harness/<ver> tree)여야 한다
+  - 위협 모델은 "성급한 에이전트" — 객체·ref를 직접 위조하는 회피자는 비목표 (문서화된 잔차)
+  - --no-verify tripwire·일반 위험 판정 기준(>100 LOC, 보안 패턴)은 완화하지 않는다
+  - git 상태 변경(커밋·푸시·태그)은 사용자 명시 지시 시에만
+
+acceptance_criteria:
+  - id: AC1-tests-sync
+    title: 게이트 테스트가 게이트와 같은 태그로 소비 리포에 동기화된다 (#17)
+    must:
+      - "tests/*.test.mjs가 .omp/extensions/harness/tests/로 이동, 소스에서 전 스위트 통과"
+      - "화이트리스트만 복사한 tmp 소비 리포에서 같은 명령이 fail 0 (source-only 의존 테스트는 skip)"
+  - id: AC2-first-sync-landing
+    title: 신규 화이트리스트 항목이 소비 리포의 첫 sync에 착지한다 (#24)
+    must:
+      - "소비 리포의 구버전 스크립트가 fetch한 태그의 스크립트로 hand-off (자식 프로세스, tmp는 부모 소유)"
+      - "픽스처: 소비자 스크립트에 없는 PATHS 항목이 1차 sync에 도착, --dry-run도 보고"
+  - id: AC3-hooks-active
+    title: init 리포의 훅이 활성화되고 비활성 상태가 감지된다 (#26)
+    must:
+      - "init Phase 2에 소스 전용 자산 제거, Phase 4에 core.hooksPath 활성화"
+      - "harness-sync가 hooksPath를 멱등 설정하고 effective 값으로 성공을 판정"
+      - "harness-version-check가 .githooks 존재+hooksPath 미설정 시 HARNESS HOOKS INACTIVE (24h 1회, realpath 비교)"
+  - id: AC4-link-contract
+    title: 동기화 문서가 화이트리스트 밖을 링크하지 않고 소비자 확장 공간이 보호된다 (#27, #28)
+    must:
+      - "rules/·INDEX.md의 화이트리스트 밖 링크 0건, harness-wiring W4가 재발 차단"
+      - "AGENTS.md Linked Modules에 prompt_engineering 등재 + CLAUDEKR 미러"
+      - ".omp/agents 개별 파일 등재, AGENTS.md에 Consumer extension points 절, W3가 디렉터리 항목 형태 고정"
+  - id: AC5-provenance-gates
+    title: 순수 sync 커밋은 override 없이 통과하고 섞인 사용자 변경은 정상 판정된다 (핸드오프 C)
+    must:
+      - "sync가 refs/harness/<ver> tree + manifest 기록, risk-assess가 tree 대조로 synced 파일 제외"
+      - "실제 .githooks/pre-commit 경유: 순수 sync 통과 + harness_sync audit, 150줄 코드 섞임 BLOCK, 편집·mode 변경·위조 manifest·다운그레이드·소비자 파일 삭제는 면제 안 됨"
+
+out_of_scope:
+  - "#15/#22 cross-repo 게이트 귀속, #21 mcp-gate 재배선, gh-loop 후속(#8/#10/#11)"
+  - "SHA-256 object-format 리포 지원 (fail-closed 수용)"
+  - "기존 init 리포의 잔존 소스 전용 자산 자동 삭제 (advisory만)"
+
+assumptions:
+  - "소비 리포는 리포 루트에서 omp를 띄운다 (.omp/rules 발견 조건)"
+  - "harness/* 태그는 YYYY.N 문법을 따른다"
+
+risks:
+  - "첫 sync는 구 스크립트로 돌아 manifest 없이 착지 → 소비 리포는 harness-check 2회 연속 실행 필요 (1회성)"
+  - "-a/unverifiable 커밋 형식에서 worktree mode 비교는 index 기준 (hook 모드는 무관)"
+
+references:
+  - "https://github.com/rae-hugo-kim/omp/issues/17"
+  - "https://github.com/rae-hugo-kim/omp/issues/24"
+  - "https://github.com/rae-hugo-kim/omp/issues/26"
+  - "https://github.com/rae-hugo-kim/omp/issues/27"
+  - "https://github.com/rae-hugo-kim/omp/issues/28"
+  - "docs/harness/handoff_2026-09-02_sync-commit-gates.md"
+  - "docs/reviews/review-2026-09-05-034520.md"

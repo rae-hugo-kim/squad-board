@@ -1,0 +1,73 @@
+name: issue-batch-2026-09-23
+status: done
+completed: 2026-09-23
+version: 2
+task_id: "20260923-212157-d35d"
+# 2026-09-23 세션: 열린 이슈 20건을 클러스터로 정리하고 권장 순서(A→B→C)로 착수.
+# 사용자 지시: "확실하게 해답이 정해진 문제는 묻지 말고 해소, 판단이 필요한 경우 질문".
+# 직전 seed(estimate-vs-actual, done 2026-09-23)는 docs/harness/archive/20260918-estimate-vs-actual/seed.yaml로 보관.
+goal: >
+  소비 레포가 하네스 정책을 잃는 결함(#35-5/6)을 막고, init 스킬 문서와 실제 게이트 동작을
+  일치시키며(#35-1/2/4), kickoff 의존 소비자 문서를 sync 화이트리스트에 넣는다(#35-7).
+  estimate-vs-actual(#32→#34)은 이 세션과 병행해 main(81f620f, 2026.78)에 착지했으므로
+  이 브랜치의 중복 구현은 제거하고 main 병합으로 흡수한다.
+  이미 트리에 착지한 이슈(#17 #24 #26 #27 #28)는 증거를 확인해 닫기 대상으로 보고한다.
+
+constraints:
+  - git 상태 변경(커밋·푸시·태그)과 GitHub 이슈 상태 변경은 사용자 명시 지시 시에만
+  - 소비 레포에 동기화되는 경로(rules/, .omp/extensions/harness, 하네스 스킬)만으로 동작해야 한다
+  - 하네스 MUST(안전·게이트·검증)는 완화하지 않는다 — 부트스트랩 면제도 커밋 게이트를 끄는 방식이면 안 된다
+  - claudedocs/CLAUDEKR.md는 AGENTS.md 변경과 같은 커밋에서 미러한다
+
+acceptance_criteria:
+  - id: AC1-policy-shadow
+    title: 소비자 확장점 안내가 정책 shadow를 만들지 않고, shadow 상태가 세션 시작에 감지된다 (#35-5, #35-6)
+    must:
+      - "AGENTS.md·CLAUDEKR·INDEX.md·init/SKILL.md 확장점 표에서 .omp/AGENTS.md가 '사용 금지'로 반전되고 프로젝트 배경은 .omp/rules/<project>-context.md(alwaysApply)로 대체; .omp/RULES.md는 user RULES.md와 함께 로드됨(omp 18.2.5 실측)을 확인해 확장점으로 유지"
+      - "harness-version-check가 루트 AGENTS.md + 비어 있지 않은 .omp/AGENTS.md(개행 1개 포함, 0바이트 제외) 공존 시 HARNESS POLICY SHADOWED (24h 1회, --force 무시)"
+      - "node --test .omp/extensions/harness/tests/harness-version-check.test.mjs 전 항목 통과 (shadow 3건 포함)"
+  - id: AC2-init-fixes
+    title: init 스킬 문서가 실제 게이트 동작과 일치한다 (#35-1, #35-2, #35-4)
+    must:
+      - "Phase 3 commit_sha가 git ls-remote --tags <source_remote> 'harness/<v>^{}'의 peeled SHA로 주입 — 첫 세션에 HARNESS DRIFT 오탐 없음"
+      - "Phase 5 초기 커밋 서술이 review-gate/backpressure-gate 실동작과 일치 (택1 방식은 사용자 결정)"
+      - "Phase 2 삭제 목록에 CHANGELOG.md 포함"
+  - id: AC3-estimate-superseded
+    title: estimate-vs-actual(#32 #33 #34)은 main 착지분(81f620f)으로 흡수한다
+    must:
+      - "이 브랜치에 estimate.mjs/estimate-report.mjs/review-gate estimate 훅/관련 문서 편집이 남아 있지 않다 (git diff HEAD에 estimate 문자열 0건)"
+      - "main 병합 후 .omp/extensions/harness/tests/*.test.mjs 전량 통과 (병합은 사용자 지시로 수행)"
+  - id: AC7-kickoff-docs-sync
+    title: kickoff/init이 참조하는 소비자 문서가 sync 화이트리스트에 개별 파일로 등재된다 (#35-7)
+    must:
+      - "harness-sync.sh PATHS에 docs/templates/{seed,rubric-report,kickoff-summary,glossary}.template.*, docs/checklists/kickoff_rubric_checklist.md 개별 등재 (디렉터리 엔트리 금지)"
+      - "harness-version-bump.sh HARNESS_PATHS·risk-assess HARNESS_ASSET_PATHS에 docs/templates/, docs/checklists/ 프리픽스 미러; harness-wiring W3/W4 통과"
+  - id: AC6-closure-evidence
+    title: 이미 착지한 이슈의 증거를 확인해 닫기 대상으로 보고한다 (#17 #24 #26 #27 #28)
+    must:
+      - "각 이슈의 AC가 트리·테스트에서 확인됨 (harness-sync.test.mjs, harness-wiring W3/W4, AGENTS.md Linked Modules)"
+
+out_of_scope:
+  - "#35-3 크로스 레포 harness-state 귀속 — #15/#22와 함께 설계 합의 후 별도 사이클"
+  - "#15 #21 #22 #25 #29 #30 #31 #14, gh-loop 후속(#8 #10 #11)"
+  - "이슈 닫기·커밋·푸시 자체 (사용자 지시로만)"
+
+assumptions:
+  - "omp://context-files.md의 .omp/AGENTS.md 같은 depth 대체 서술이 현재 omp 버전에서 유효하다 (18.1.14/18.2.5 실측으로 확인; 같은 문서의 RULES 이름 충돌 서술은 18.2.5 실측과 불일치 — 양쪽 다 로드됨)"
+  - "estimate-vs-actual 핸드오프 문서는 이 워크트리에 없으며 이슈 #32~#34 본문이 스펙이다"
+
+risks:
+  - "POLICY SHADOWED 알림이 24h 1회라 무시되면 그 세션은 정책 없이 진행됨 (알림 텍스트가 /new 재시작을 지시)"
+  - "부트스트랩 커밋 면제(#35-2 (a))는 risk-assess 면제 경로를 넓혀 우회 표면이 될 수 있음"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/35
+    reason: init·확장점 결함 6건
+  - path: https://github.com/rae-hugo-kim/omp/issues/32
+    reason: estimate-vs-actual ①
+  - path: https://github.com/rae-hugo-kim/omp/issues/33
+    reason: estimate-vs-actual ②
+  - path: https://github.com/rae-hugo-kim/omp/issues/34
+    reason: estimate-vs-actual ③
+  - path: docs/decisions/001-consumer-safe-sync.md
+    reason: #17 #24 #26 #27 #28 착지 기록

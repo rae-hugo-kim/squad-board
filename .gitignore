@@ -1,0 +1,27 @@
+# Harness runtime state (project-local, transient)
+.omp/harness-state/
+.omp/state/
+
+# Local archives (intentionally untracked; visible in the Obsidian vault)
+docs/sum/
+docs/brainstorming/
+docs/reviews/
+docs/harness/*-skip
+docs/harness/*-done
+
+# OMC state, if OMC tooling is used alongside (transient)
+.omc/
+
+# Serena MCP tool state (per-machine, transient)
+.serena/
+
+# Obsidian vault config (viewer-local UI state, per-machine)
+.obsidian/
+
+# Human-facing one-off HTML artifacts (see artifacts/README.md)
+# Pattern: ignore everything under artifacts/, but keep README.md at any depth
+# so subdirectory structure is documented (recursive ** for nested subdirs).
+artifacts/**
+!artifacts/**/
+!artifacts/README.md
+!artifacts/**/README.md

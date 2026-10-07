@@ -1,0 +1,90 @@
+name: cross-repo-commit-gate-attribution
+status: approved
+version: 1
+task_id: "20260724-cross-repo-gates"
+goal: >
+  commit-gates가 "세션 시작 디렉토리"가 아니라 "커밋 대상 레포"를 기준으로 판정하도록
+  유효 디렉토리 귀속을 도입합니다 — sum-vault 백업(git -C 형태)의 오차단 제거,
+  역방향(타 세션 → harness 레포 커밋) 무게이트 우회 봉쇄, 정적으로 귀속 불가한
+  재지정(cd/변수/GIT_DIR/wrapper-chdir/amp·bash-c+재지정)의 fail-closed 전환.
+  부수 작업: gh-fanout 워커 PI_AUTO_QA=0 배선, 사용자 config 폴백 체인(task role,
+  openai-codex/* sibling 체인) 구성.
+
+references:
+  - path: .omp/extensions/harness/gates/git-commit-detect.mjs
+    reason: "resolveCommitTarget(리터럴-only -C)/literalCValue/hasRetargetIndicator/gitCommitSegScan/segCdLike/segPersistsGitEnv/commitIsStandalone + parseCommitForm·isWipCommit opts + tokenize backslash 폴딩"
+  - path: .omp/extensions/harness/gates/commit-gates.mjs
+    reason: "디스패처 귀속 블록(정규화/관할skip/BLOCK) + hasHarnessMarker 3중 판정"
+  - path: .omp/skills/sum/SKILL.md
+    reason: "vault 사전체크가 realpath 출력 → 커밋 호출은 리터럴 경로 핸드오프"
+  - path: .omp/skills/gh-fanout/SKILL.md
+    reason: "headless 워커 Auto QA off"
+  - note: >
+      설계 제약(적대 리뷰 2026-07-24, 3라운드 반영): 범용 셸 해석기·변수 확장기 금지 —
+      지원 형태는 단일 direct commit + 반복 -C(리터럴 경로만; $/~/치환은 fail-closed),
+      게이트 대상 경로는 standalone-commit(복합 호출 BLOCK) 강제. foreign 타겟은
+      harness-meta(worktree∪index∪HEAD, unborn HEAD는 fail-closed) 보유 시 타겟 상태로
+      게이트, 미보유 시만 관할 skip. consumer 배포는 승인된 commit+tag 후 공식
+      harness-sync로만(수동 복사분 전량 원상복원 완료). 집행 경계의 pre-commit 이전은
+      별도 kickoff로 이관(사용자 결정).
+
+constraints:
+  - consumer 레포에는 배포하지 않음 — 검증은 temp fixture로만 (프로비넌스 위조 금지)
+  - 이 레포에 대한 git 상태 변경 명령 없음 (커밋/스테이징은 사용자 몫)
+
+acceptance_criteria:
+  - id: AC1
+    title: "크로스레포 귀속 4분면 — 같은레포 정규화 / 무harness skip / harness 타겟게이트 / 미해석 BLOCK이 각각 테스트로 고정"
+  - id: AC2
+    title: "역방향 봉쇄 배포형 증명 — 신형 하네스 전체본을 가진 consumer 픽스처에서 harness 타겟(critical+UNKNOWN) 커밋이 타겟 상태로 exit 2"
+  - id: AC3
+    title: "vault 플로우 — 사전체크가 realpath 출력, 커밋 호출은 리터럴 경로 핸드오프: 리터럴 형태 관할 밖 skip(exit 0), 동적 $VAR/${…} 형태는 BLOCK(exit 2)+realpath 안내"
+  - id: AC4
+    title: "우회면 봉쇄 — 마커 staged-delete/unborn-HEAD, 비존재 타겟, amp·bash-c·wrapper-chdir+재지정 전부 fail-closed 테스트 고정"
+  - id: AC5
+    title: "스킬 갱신 — sum(사전체크 realpath 출력+리터럴 핸드오프), gh-fanout(PI_AUTO_QA=0), compush(커밋/푸시 분리)"
+  - id: AC6
+    title: "config 갱신 — modelRoles.task 신설, retry.fallbackChains['openai-codex/*'] sibling 체인, YAML 유효+omp 기동 확인"
+  - id: AC7
+    title: "회귀 없음 — 신규 포함 게이트 테스트 전량 통과(102/102) + 기존 자식 게이트 스위트(132/132)"
+  - id: AC8
+    title: >-
+      consumer 8개 정본 복원 — 수동 복사분 제거, 각 레포 자기 정본(HEAD 또는 meta
+      버전 태그) 대조 일치. 한계: 복사 전 두 파일의 미커밋 워크트리 상태는 캡처하지
+      않았으므로 증명 범위는 '추적 정본으로의 복원'까지이며, 해당 두 파일에 사전
+      로컬 수정이 존재했다면 소실됨(잔여 불확실성 — 동기화 자산은 계약상 수기 수정
+      대상이 아니라 위험 낮음으로 평가, 단 증거로는 배제 불가)
+  - id: AC9
+    title: >-
+      standalone-commit 강제 — 관할-skip 대상 포함 전 경로에서 커밋은 단독 호출만
+      허용(동반 명령·출력/선행 리다이렉션·치환·백그라운드 & 금지; 동반 명령이 skip
+      판단 자체를 재지정할 수 있어 면제 없음). sum 4단계 분리·compush 커밋/푸시 분리
+  - id: AC10
+    title: >-
+      2차 리뷰 회귀수정 — -C 리터럴-only(동적 확장 지원 제거: shadow/quote/escape/중첩
+      default 클래스 근절), xargs 동적 argv unverifiable/unresolved, --bare·-c include.*
+      재지정 분류, 마커 worktree 프로브 statSync 의미론(ENOENT/ENOTDIR만 정상부재),
+      index.ts 외부 경계 fail-closed(25s 예산 + 비정상 status BLOCK), backslash
+      토크나이저 bash 정합 폴딩, sudo -u git 프로그램 shadow 방지, ambient GIT_* 차단
+      (/dev/null 중화 면제), 지속 GIT_* env의 선두대입+export 결합까지 fail-closed
+  - id: AC11
+    title: >-
+      3차 리뷰 11+2건 처분 — 출력/선행 리다이렉션 은닉, dq-backslash bash 정합,
+      standalone 최우선(skip-order 역전 봉쇄), wrapper option-value shadow 일반형
+      (프로그램 후보 전수+모호성 unresolved), += 대입, $(…) 삼킴 연속스캔,
+      process substitution 거부, 외부 SIGTERM-exit0 차단(SIGKILL+killed/signal),
+      세션 toplevel 프로브 실패 fail-closed, GIT_CEILING_DIRECTORIES ambient,
+      trailing &, brace 리터럴 보존 — 전부 테스트 고정
+  - id: AC12
+    title: >-
+      4차 마감 리뷰 5계열 처분 — 글루드 출력 리다이렉션(raw quote-aware 스캔),
+      이스케이프 공백+# 주석 오판(background & 가시화), unquoted \+CRLF bash 정합
+      (분리 보존), 치환 은닉 커밋 isCommitSuspect 프리게이트(index.ts+디스패처),
+      bash 툴 구조화 입력(cwd 귀속·env GIT_* 주입 BLOCK·async 커밋 BLOCK·어댑터
+      예외 fail-closed) — 테스트 고정 + omp 헤드리스 로드 스모크
+  - id: AC13
+    title: >-
+      5차 리뷰 blocker 처분 — 동적 subcommand와 eval/env -S/dynamic shell -c 간접
+      executor 프리게이트, 구조화/inline PATH·HOME·XDG_CONFIG_HOME·shell startup·
+      GIT_*·linker 실행환경 불일치 차단(작성자/커미터 metadata만 허용), setsid
+      -f/--fork는 -w/--wait 없으면 차단 — 102+132=234 테스트·구문검사·OMP LOADOK

@@ -1,0 +1,65 @@
+name: closeout-ac-record-56
+status: done
+completed: 2026-09-29
+version: 1
+task_id: "20260929-085219-06dc"
+# 사후 작성 seed: 이슈 #56 본문(#54 Pass 1 M1·LOW — closeout 경로의 미체크 AC 무시, task_closed 행의
+# task_id 미확인)이 근거·재현·완료 기준 5개를 담고 있어 kickoff 인터뷰는 생략(gate-friction-48 선례).
+# 직전 seed(gate-friction-48, done)는 docs/harness/archive/20260925-gate-friction-48/seed.yaml로 보관.
+# 구현·3-pass 리뷰 10라운드·verifier 판정이 끝난 뒤 작성했으므로 current-scope.md의 AC는 전부 [x]다.
+goal: >
+  acceptance-gate의 closeout landing이 은퇴되는 current-scope.md의 AC 기록을 판정하지 않아 미체크 AC가
+  남은 채로 seed를 done으로 닫을 수 있던 구멍(#56)을 막는다 — HEAD scope의 AC 기록을 마감 판정의
+  첫 조건으로 두고, task_closed 행은 닫히는 seed의 task_id를 명시할 때만 인정한다.
+
+constraints:
+  - git 상태 변경(커밋·푸시·태그)과 GitHub 이슈 상태 변경은 사용자 명시 지시 시에만
+  - 소비 레포에 동기화되는 경로(.omp/extensions/harness, 하네스 스킬, .omp/rules/harness-*, docs/rules)만으로 동작해야 한다
+  - 게이트는 fail-closed — 마크다운 구조 에뮬레이션으로 AC 기록의 경계를 정하지 않는다(review-gate 증거 파서와 같은 결론)
+
+acceptance_criteria:
+  - id: AC1-unchecked-blocks
+    title: HEAD scope에 미체크 AC가 있으면 full closeout을 스테이징해도 BLOCK되고 메시지에 미체크 개수가 나온다
+    source: https://github.com/rae-hugo-kim/omp/issues/56
+    must:
+      - "acceptance-gate.mjs closeoutState(): seed approved→done 전이가 커밋에 있으면 (b)·(c)보다 먼저 HEAD current-scope.md의 AC 기록을 판정 — 미체크·scope 부재·체크박스 0개·git 오류는 risk·WIP 무관 exit 2"
+  - id: AC2-checked-lands
+    title: 모두 체크된 closeout landing은 기존과 같이 allow된다(기존 closeout 테스트 전부 통과)
+    source: https://github.com/rae-hugo-kim/omp/issues/56
+    must:
+      - "HEAD scope 전부 [x] + §3 세 부분 → HARNESS NOTE: closeout landing (실제 은퇴 scope 35e24e6~1 형태 포함)"
+  - id: AC3-task-id-match
+    title: task_id가 다른 task_closed 행만 추가된 closeout은 closeout으로 인정되지 않는다
+    source: https://github.com/rae-hugo-kim/omp/issues/56
+    must:
+      - "추가된 행은 JSON 최상위 event === task_closed 이고, HEAD seed에 task_id가 있으면 meta.task_id가 같아야 §3c로 인정"
+  - id: AC4-regression-tests
+    title: 위 1·3의 회귀 테스트가 acceptance-gate.test.mjs에 추가된다
+    source: https://github.com/rae-hugo-kim/omp/issues/56
+    must:
+      - "tests/acceptance-gate.test.mjs `#56 …` 케이스 (hermetic git 리포에서 실제 게이트 실행)"
+  - id: AC5-suite-docs
+    title: 전체 하네스 테스트 통과, docs-drift OK, closeout_contract.md §3과 통합 계약의 closeout 서술에 조건이 반영된다
+    source: https://github.com/rae-hugo-kim/omp/issues/56
+    must:
+      - "node --test .omp/extensions/harness/tests/*.test.mjs 전부 통과, node scripts/docs-drift OK"
+      - "docs/rules/closeout_contract.md §3a/§3c/§3e, .omp/rules/harness-harness_integration_contract.md §2 acceptance-gate 항목"
+
+out_of_scope:
+  - "Check 3가 인덱스가 아닌 워크트리 scope를 읽는 문제, audit.jsonl append-only 무결성, scripts/docs-drift closeoutConsistency의 구 파서 — 후속 이슈"
+  - "이슈 닫기·커밋·푸시 자체 (사용자 지시로만)"
+
+assumptions:
+  - "kickoff 템플릿과 thread-scope.mjs는 Acceptance Criteria 절을 scope 파일의 마지막 절로 둔다 — AC 기록 = 첫 AC 헤딩부터 EOF"
+  - "실제 마감 커밋은 docs 전용이 보통이다(35e24e6: 3파일) — risk 백스톱은 거짓 마감의 방어가 못 된다"
+
+risks:
+  - "AC 절 뒤에 체크박스를 둔 scope는 그 항목까지 AC로 세어 false BLOCK — 후속 단계는 체크박스로 쓰지 않는다(#48-4)"
+
+references:
+  - path: https://github.com/rae-hugo-kim/omp/issues/56
+    reason: 원 이슈 (근거·재현·완료 기준)
+  - path: https://github.com/rae-hugo-kim/omp/pull/54
+    reason: 도입 PR과 사후 Pass 1 코멘트
+  - path: docs/rules/closeout_contract.md
+    reason: §3 closeout 계약

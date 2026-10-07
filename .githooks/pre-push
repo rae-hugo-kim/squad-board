@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# pre-push: block pushes that would publish local-archive files or FAIL-severity
+# docs drift.
+#
+# 1) LOCAL ARCHIVES (all repos, dependency-free): docs/sum, docs/reviews,
+#    docs/brainstorming are untracked by policy (narratives are backed up to the
+#    private sum-vault). If any are TRACKED, the push is blocked — this is the
+#    backstop for `git add -f` and legacy-tracked files that commit-time
+#    archive-guard can only warn about.
+# 2) DOCS DRIFT (source repo only): scripts/docs-drift is not on the sync
+#    whitelist; the [[ -f ]] guard makes this a clean no-op in consumers.
+#
+# Shipped via harness-sync (.githooks/pre-push) and activated by
+# `git config core.hooksPath .githooks` (bootstrap/migrate set this; the source
+# repo sets it directly). Emergency bypass: git push --no-verify.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+drift="$repo_root/scripts/docs-drift"
+
+tracked_archives="$(git -C "$repo_root" ls-files docs/sum docs/reviews docs/brainstorming)"
+if [[ -n "$tracked_archives" ]]; then
+  {
+    echo "pre-push blocked: local archive files are tracked in git:"
+    echo "$tracked_archives" | head -10 | sed 's/^/  - /'
+    echo "Session narratives must not reach a remote (policy: .omp/rules/harness-doc_standards.md)."
+    echo "Clean up: git rm -r --cached docs/sum docs/reviews docs/brainstorming"
+    echo "then add them to .gitignore. Narratives are backed up in the private sum-vault."
+    echo "Emergency bypass: git push --no-verify"
+  } >&2
+  exit 1
+fi
+
+if [[ -f "$drift" ]]; then
+  if ! node "$drift"; then
+    {
+      echo ""
+      echo "pre-push blocked: docs-drift reported FAIL-severity issues (above)."
+      echo "Re-sync and re-stamp the reference docs (or mark them status: stale),"
+      echo "fix any broken links, then retry. Emergency bypass: git push --no-verify."
+    } >&2
+    exit 1
+  fi
+fi
+exit 0

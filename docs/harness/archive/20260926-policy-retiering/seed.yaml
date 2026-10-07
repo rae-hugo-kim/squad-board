@@ -1,0 +1,108 @@
+name: policy-retiering
+status: done
+completed: 2026-09-26
+version: 1
+task_id: "20260926-041251-0aa9"
+# 사후 작성 seed: ADR docs/decisions/002-policy-layer-retiering.md(확정 2026-09-26)와 이슈 #50
+# 본문이 결정·근거·기각 대안·완료 기준을 담고 있어 kickoff 인터뷰는 생략(2026-09-18
+# estimate-vs-actual, 2026-09-24 omp1830-friction seed 선례). 직전 seed(omp1830-friction, done)는
+# docs/harness/archive/20260924-omp1830-friction/seed.yaml로 보관.
+# 사이클 인테이크(.omp/rules/harness-cycle_definition.md) 판정: 분할 제안 → 8사이클, 2026-09-26 사용자 승인.
+goal: >
+  하네스 정책 문서 29편(rules/*.md)을 omp 규율 위계로 재배치한다 — 28편은
+  .omp/rules/harness-<name>.md(규칙집, description frontmatter), 상시 요건은
+  .omp/rules/harness-core.md(alwaysApply, ≤12줄), 페르소나는 templates/PERSONALITY.md를
+  bootstrap이 사용자 디렉터리에 복사. rules/ 디렉터리와 화이트리스트 항목 rules는
+  제거하고 AGENTS.md는 색인·집행 표로 축약한다. 원천은 하나(git mv), TTSR은 범위 밖.
+
+constraints:
+  - git 상태 변경은 이 워크트리(브랜치 rae-hugo-kim/policy-retier) 안에서 사이클 단위 커밋만; 머지·태그 금지, 푸시·PR은 compr 스킬로 1회
+  - ~/projects/workspace/omp(main 워크트리)와 ~/orca/workspaces/omp/issue(#48 세션)는 건드리지 않는다
+  - .omp/rules/는 소비자 공간(ADR 001 §3) — 디렉터리 sweep 금지, harness- 접두사 파일만 동기화
+  - 원천 이중화 금지 — rules/ 사본을 남기지 않는다
+  - 테스트·감사(node --test, docs-drift, harness-audit)는 사이클 끝에 1회만 실행
+  - claudedocs/CLAUDEKR.md는 AGENTS.md 변경과 같은 커밋에서 미러하거나 stale 표기
+  - 프로브(omp -p)는 임시 HOME/격리 디렉터리로 실행해 실제 ~/.omp를 건드리지 않는다
+
+acceptance_criteria:
+  - id: AC1-adr-landed
+    title: ADR 002와 영속 사이클 큐(seed + current-scope)가 첫 커밋으로 착지한다
+    must:
+      - "git log -1 --stat에 docs/decisions/002-policy-layer-retiering.md, docs/harness/seed.yaml, docs/harness/current-scope.md가 실린다"
+  - id: AC2-sync-prefix-glob
+    title: harness-sync.sh가 .omp/rules/harness-*.md 접두사 글롭 항목을 소비자 파일 비접촉으로 동기화한다 (ADR 부속 1)
+    must:
+      - "PATHS 글롭 항목이 복사 루프(기존 harness-*.md 삭제 후 복사)·dry-run·provenance git add·manifest ls-files에서 모두 동작한다"
+      - "픽스처 소비 리포에 .omp/rules/consumer-x.md와 낡은 harness-old.md를 두고 sync → consumer-x.md 잔존, harness-old.md 삭제, 신규 harness-*.md 설치"
+      - "harness-wiring W3 가드가 접두사 글롭을 파일 단위 등재로 인정하고 통과한다"
+  - id: AC3-rules-moved
+    title: rules/*.md 28편(INDEX 제외)이 .omp/rules/harness-<name>.md로 이동하고 규칙집으로 노출된다 (ADR 부속 2)
+    must:
+      - "git mv로 이동(이력 보존), 각 파일에 description frontmatter"
+      - "rules/<name>.md 링크(46파일 394건)와 이동 파일 내부 상대 경로(../ 깊이)가 치환되고 W4 가드 통과"
+      - "scripts/docs-drift, scripts/harness-audit.sh, estimate-report.mjs의 rules/ 경로가 갱신된다"
+      - "omp -p 프로브에서 read rule://harness-writing_style이 본문을 돌려준다"
+  - id: AC4-harness-core
+    title: .omp/rules/harness-core.md(alwaysApply)가 매 요청에 실린다 (ADR A칸)
+    must:
+      - "본문 ≤ 12줄: 문체·경어체 요약, Completion Contract 3절, verifier verdict 후 완료 선언, 위험 조작 사전 승인, 근거 인용, Scope self-detect·Cycle intake 한 줄 + rule:// 포인터"
+      - "omp -p 프로브 출력에 harness-core 마커 문장이 있다"
+  - id: AC5-agents-md-slim
+    title: AGENTS.md가 색인·집행 표로 축약되고 rules/가 제거된다 (ADR 부속 3·4)
+    must:
+      - "A칸 MUST 문장은 한 줄 포인터, Linked Modules는 rule://harness-<name> + 파일 경로 병기"
+      - "rules/INDEX.md의 소유 범례·충돌 순서·관할 프로즈를 AGENTS.md로 흡수 후 rules/ 디렉터리와 화이트리스트 항목 rules 제거"
+      - "Consumer extension points 표의 .omp/RULES.md 안내 'loads alongside' → shadow 정정(#49)"
+      - "claudedocs/CLAUDEKR.md 같은 커밋 동기, AGENTS.md에 rules/<name>.md 링크 0건"
+      - "scripts/docs-drift와 bash scripts/harness-audit.sh --terse 점수가 4015b10 기준선 이하로 내려가지 않는다"
+  - id: AC6-consumer-migration
+    title: harness-check/migrate가 소비 리포의 rules/ 고아를 제거하고 링크 치환을 안내한다 (ADR 부속 6)
+    must:
+      - "픽스처 소비 리포(rules/ 고아 보유)에서 절차 실행 후 rules/ 부재 + .omp/rules/harness-* 존재 + 안내 문구 출력"
+      - "소비자 파일이 삭제되는 경로가 없다 (rules/ 외 비접촉)"
+  - id: AC7-personality
+    title: templates/PERSONALITY.md가 bootstrap으로 ~/.omp/agent/에 복사된다 (ADR D칸)
+    must:
+      - "bootstrap 스킬에 부재 시 복사 단계(존재하면 비접촉)"
+      - "임시 HOME에서 절차 실행 후 파일 생성, omp -p A/B 프로브 출력에 'Fragments when clearer' 부재"
+  - id: AC8-closeout-probe
+    title: 이슈 #50 완료 기준 1–5가 종합 프로브로 확인되고 PR이 열린다
+    must:
+      - "/dump 또는 omp -p 프로브: harness-* 규칙집 목록(이름+설명) 존재, harness-core 본문 상시, 프롬프트 크기 전후 비교를 ADR Revisit에 기록"
+      - "node --test .omp/extensions/harness/tests/*.test.mjs 전 항목 통과"
+      - "verifier verdict 도착 후 compr로 PR 생성 — 머지는 이 AC의 판정 대상이 아님"
+
+out_of_scope:
+  - "TTSR condition 규칙 도입 (ADR 부속 5 — 별도 사이클)"
+  - "이슈 #50 완료 기준 6(blender 소비 리포 재측정) — 머지·태그 뒤 절차"
+  - "하네스 버전 범프·태그·머지"
+  - "B칸 규칙 본문 개정 (이동·frontmatter·링크 치환만)"
+
+assumptions:
+  - "omp 네이티브 규칙 탐색은 <cwd>/.omp/rules/*.{md,mdc} 비재귀이며 description frontmatter가 규칙집 노출 조건이다 (omp://rulebook-matching-pipeline.md, ADR 근거 3)"
+  - "PATHS 글롭 문자열은 git pathspec으로 그대로 통하고 복사 루프만 확장이 필요하다 (사이클 ②에서 실측)"
+  - "~/.omp/agent/PERSONALITY.md가 프리셋 본문을 대체한다 (ADR 근거 5, 2026-09-26 A/B 프로브)"
+
+risks:
+  - "링크 치환 394건은 기계적이지만 LOC가 커 review-gate high — 사이클 ③ 커밋에 3-pass 리뷰 증거 필요"
+  - "글롭 항목을 잘못 확장하면 sync가 소비자 .omp/rules/ 파일을 지울 수 있다 — 픽스처에 consumer-x.md를 두고 잔존을 검증(AC2)"
+  - "rules/ 제거로 소비 리포 문서의 rules/<name>.md 링크가 깨진다 — migrate 안내로 완화(AC6)"
+
+references:
+  - path: docs/decisions/002-policy-layer-retiering.md
+    reason: 결정·부속 결정·기각 대안·완료 기준
+  - path: https://github.com/rae-hugo-kim/omp/issues/50
+    reason: 작업 이슈
+  - path: https://github.com/rae-hugo-kim/omp/issues/49
+    reason: 경어체 규칙 부재 — 처방 수정 대상
+  - path: scripts/harness-sync.sh
+    reason: PATHS 화이트리스트(L178-234)·복사 루프(L261-276)·provenance(L310-340)
+  - path: .omp/extensions/harness/tests/harness-wiring.test.mjs
+    reason: W3(L49-64)·W4(L85-107) 가드
+
+estimate:
+  risk: high
+  files: 90
+  depth: low
+  model: claude-fable-5-1
+  effort: medium
