@@ -43,6 +43,7 @@ npm run dev     # http://localhost:3000
 | `npm run dev` | 개발 서버 |
 | `npm run build` / `npm run start` | 프로덕션 빌드·실행 |
 | `npm run typecheck` / `npm run lint` | 타입 검사 / 린트 |
+| `npm run e2e` | Playwright 흐름 점검 (`e2e/stage1.mjs` 상단의 전제 참고) |
 | `npm run db:generate` | `src/db/schema.ts` 변경 → 마이그레이션 SQL 생성 (`drizzle/`) |
 | `npm run db:migrate` | 마이그레이션 적용 |
 | `npm run db:seed` | 맵·요원 upsert + (멤버 0명일 때) 관리자 생성. 여러 번 실행해도 안전 |
@@ -97,6 +98,11 @@ docker run -d --name squad-board -p 3000:3000 \
 
 컨테이너는 시작 시 마이그레이션과 시드를 자동 실행합니다. `data/` 볼륨에 SQLite 파일이 남습니다.
 도메인 연결은 Cloudflare Tunnel 또는 역프록시(Caddy 등)로 HTTPS를 붙이세요 — 운영 환경에서는 쿠키가 `secure`라 HTTPS가 필요합니다.
+
+## 문서
+
+- 기획서: [`docs/plans/squad-board-plan.md`](docs/plans/squad-board-plan.md)
+- 세션 인수인계: [`docs/handoff/`](docs/handoff/)
 
 ## 로드맵 (기획서 기준)
 

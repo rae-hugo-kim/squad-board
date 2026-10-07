@@ -12,7 +12,8 @@
     "db:migrate": "node --env-file=.env.local --import tsx src/db/migrate.ts",
     "db:seed": "node --env-file=.env.local --import tsx src/db/seed.ts",
     "db:studio": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs studio",
-    "db:setup": "npm run db:migrate && npm run db:seed"
+    "db:setup": "npm run db:migrate && npm run db:seed",
+    "e2e": "node e2e/stage1.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",
@@ -34,6 +35,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
