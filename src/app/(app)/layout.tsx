@@ -11,7 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen flex-col">
       <AppNav me={{ nickname: me.nickname, color: me.color, role: me.role }} />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
+      <main className="app-main">{children}</main>
       <RiotNotice />
     </div>
   );

@@ -4,16 +4,17 @@ import { requireMember } from "@/lib/auth";
 import { formatDateKo, todayInSeoul } from "@/lib/date";
 import { MAX_PARTICIPANTS, TEAM_SIZE } from "@/lib/squad/compose";
 import { MemberAvatar } from "@/components/result-badge";
+import { MapSelection } from "@/components/map-selection";
 import { listActiveMembers, listMaps } from "@/server/queries/prefs";
 import { countSharedTacticsByMap } from "@/server/queries/tactics";
 
-export const metadata: Metadata = { title: "오늘의 스쿼드" };
+export const metadata: Metadata = { title: "홈 · 오늘의 스쿼드" };
 export const dynamic = "force-dynamic";
 
 type Props = { searchParams: Promise<{ error?: string }> };
 
 /**
- * 랜딩 — "오늘의 스쿼드".
+ * 호발동 랜딩과 "오늘의 스쿼드".
  * 참가자를 체크하고 맵을 고르면 /today 가 그 맵의 공통 전술 중 실행 가능한 것을 우선도 순으로 골라
  * 멤버 라인업이 채워진 보드로 바로 보낸다. 편성 결과를 비교하고 싶으면 같은 입력으로 편성기(/squad)로 간다.
  * GET 폼이라 URL에 선택이 남고, JS 없이도 동작한다.
@@ -31,9 +32,16 @@ export default async function HomePage({ searchParams }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
+      <section className="home-hero">
+        <p className="eyebrow">HOIDOIHO VALORANT</p>
+        <h1>호발동</h1>
+      </section>
+
+      <MapSelection maps={allMaps} />
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-wide">오늘의 스쿼드</h1>
+          <h2 className="font-display text-4xl font-bold tracking-wide">오늘의 스쿼드</h2>
           <p className="text-sm text-secondary">
             <span className="font-mono">{today}</span> {formatDateKo(today)} · 참가자를 체크하고 맵을 고르면 공통 전술 보드로 바로 갑니다
           </p>

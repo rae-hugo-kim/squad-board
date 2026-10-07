@@ -32,13 +32,9 @@ export default async function LoginPage({ searchParams }: Props) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm flex-1 content-center">
-        <div className="mb-8 flex items-center gap-3">
-          <div
-            className="h-7 w-7 bg-accent"
-            style={{ clipPath: "polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)" }}
-            aria-hidden
-          />
-          <div className="font-display text-3xl font-bold uppercase tracking-wider">Squad Board</div>
+        <div className="mb-8">
+          <p className="eyebrow">HOIDOIHO VALORANT</p>
+          <h1 className="text-3xl font-extrabold tracking-tight">호발동</h1>
         </div>
         <LoginForm members={list} next={next} />
       </div>

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- **feat(ui)**: 호발동 디자인 적용 — 다크 테마·반응형 헤더·역할별 요원표(`/agents`)·홈 및 전술 인덱스의 로테이션/전체 맵 카드·맵 상세 미니맵. 기존 로그인·권한·DB·오늘의 스쿼드·편성·전술 생성/저장 기능을 유지하며, 모바일 전술 툴바는 줄바꿈으로 표시합니다.
+
 ## [2026.86] - 2026-10-07
 
 - **feat(harness)**: #15 cross-repo guard ①②③ — 세션 cwd ≠ 작업 대상 리포인 갭을 명령 층(`index.ts` 인프로세스, `gates/cross-repo.mjs`)에서 닫습니다. ① 세션 리포 밖 리포의 파일 mutation(edit/write + bash 리터럴 경로의 rm/mv/cp/tee/sed -i/리다이렉션 등)은 그 리포의 규율 파일(`AGENTS.md` > `CLAUDE.md` > `.cursorrules`) read가 `read-log.txt`에 증명될 때까지 BLOCK하고, 규율 파일이 없는 리포는 경고만 남기고 통과합니다. ② 규율 파일 또는 하네스를 가진 외부 리포 대상 `git commit`/`git push`는 read와 무관하게 BLOCK하고 대상 리포 세션 안내(`cd <repo> && omp -p …`)를 출력합니다 — `git -C X`, 리터럴 `cd X &&`, bash -c, bash 툴 `cwd` 입력을 해석하며, 규율·하네스 없는 리포(sum-vault의 `git -C "<vault>" commit/push`)는 기존 "관할 밖" 의미론대로 통과합니다. **주의**: 대상을 정적으로 해석할 수 없는 commit/push — `git -C "$DIR" commit`, `cd "$DIR" && git commit`, `cd "$(git rev-parse --show-toplevel)" && git commit`, `pushd`, `eval`, `env -C`, `GIT_DIR=…`, 한 줄의 두 번째 `cd`, 아직 없는 디렉터리로의 `cd` — 는 fail-closed로 BLOCK되므로 디렉터리를 리터럴로 쓰거나 세션 cwd에서 plain commit을 하세요(`git -C "$DIR" init/add` 같은 비쓰기 동사는 영향 없음). ③ `docs/harness/acceptance-done`은 mtime 기준 24h 뒤 만료되어 stale 플래그는 무시 + `HARNESS WARNING`(파일은 지우지 않음). 리포 동일성은 `gates/repo-root.mjs`(`repoToplevel`/`repoIdentity`/`physicalResolve`, common git dir realpath — #57/#58 공유 축)로 판정해 같은 리포의 링크드 워크트리(Orca 카드)는 외부 리포가 아닙니다. 잔존면은 `harness-harness_integration_contract` "Cross-repo guard residuals (#15)". ④(외부 리포 read 차단)는 2026-10-06 세션 결정으로 제외. 테스트 `tests/cross-repo.test.mjs`(9) + acceptance-gate 만료 2건, 3-pass 리뷰 r1~r3 FAIL → r4 PASS WITH NOTES(fable-5-1 + gpt-6-astra), verifier PASS WITH NOTES.

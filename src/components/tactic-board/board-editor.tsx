@@ -499,7 +499,7 @@ export function BoardEditor({ tactic, author, stages: initialStages, slots, agen
           </span>
         ))}
         <span className="text-xs text-secondary">작성 {author?.nickname ?? "(알 수 없음)"}</span>
-        <div className="ml-auto flex items-center gap-2 text-xs">
+        <div className="ml-auto flex w-full flex-wrap items-center gap-2 text-xs lg:w-auto">
           {readOnly ? <span className="badge border border-line text-muted">읽기 전용 — 복제해서 내 버전으로 고칠 수 있습니다</span> : null}
           {!readOnly && tactic.isShared ? <span className="text-muted">공통 전술 — 전술가 모두가 함께 고칩니다</span> : null}
           {!readOnly ? (
