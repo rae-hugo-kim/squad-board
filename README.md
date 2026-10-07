@@ -24,7 +24,8 @@ npm install
 
 # 2) 환경 변수
 cp .env.example .env.local
-#    SQUAD_PASSCODE  : 소모임 공용 패스코드
+#    SQUAD_PASSCODE  : 소모임 공용 패스코드 (일반 멤버)
+#    ADMIN_PASSCODE  : 관리자 패스코드 (관리자 닉네임은 이 값으로만 입장)
 #    SESSION_SECRET  : openssl rand -hex 32 로 생성
 #    SEED_ADMIN_NICKNAME : 첫 관리자 닉네임
 
@@ -94,8 +95,8 @@ data/                   SQLite 파일 (git 제외)
 
 ## 설계 메모
 
-- **인증**: 공용 패스코드 1개 + 닉네임 선택. 세션은 서버 저장 없이 HMAC 서명 쿠키(90일).
-  강제 전원 로그아웃은 `SESSION_SECRET`을, 패스코드 유출은 `SQUAD_PASSCODE`를 바꾸면 됩니다.
+- **인증**: 공용 패스코드 + 닉네임 선택. 관리자 닉네임은 별도 `ADMIN_PASSCODE`를 요구해, 공용 코드만 아는 사람이 관리자 닉네임을 골라 관리자가 되는 것을 막습니다. 세션은 서버 저장 없이 HMAC 서명 쿠키(90일).
+  강제 전원 로그아웃은 `SESSION_SECRET`을, 패스코드 유출은 `SQUAD_PASSCODE`/`ADMIN_PASSCODE`를 바꾸면 됩니다.
 - **권한**: 개인 선호는 본인만 수정(서버 액션이 세션에서 멤버 id를 꺼내며, 폼 값은 믿지 않음). 관리자 액션은 첫 줄에서 `requireAdmin()`.
 - **멤버 삭제 없음**: 비활성화만 합니다. 2단계의 세션 기록이 과거 멤버를 참조하기 때문입니다.
 - **편성기는 보조 도구**: 결과를 강제하지 않고 근거(선호 순위·역할군·경고)를 보여줍니다. 규칙(전략가 1·척후대 1 이상)은 상수이고, 참가자는 최대 10명까지 계산합니다.
@@ -114,7 +115,8 @@ Vercel의 파일 시스템은 요청마다 사라지므로 SQLite 파일(`file:`
 
    | 변수 | 값 |
    | --- | --- |
-   | `SQUAD_PASSCODE` | 소모임 공용 패스코드 |
+   | `SQUAD_PASSCODE` | 소모임 공용 패스코드 (일반 멤버) |
+   | `ADMIN_PASSCODE` | 관리자 패스코드 (관리자 닉네임 입장용) |
    | `SESSION_SECRET` | `openssl rand -hex 32` 결과 |
    | `DATABASE_URL` | `libsql://<db>-<org>.turso.io` |
    | `DATABASE_AUTH_TOKEN` | Turso 토큰 |

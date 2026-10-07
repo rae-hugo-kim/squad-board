@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { loginAction, type ActionResult } from "@/server/actions/auth";
 
-type MemberOption = { id: string; nickname: string; color: string };
+type MemberOption = { id: string; nickname: string; color: string; role: "admin" | "member" };
 
 /**
  * 입장 폼 (클라이언트 컴포넌트).
@@ -15,6 +15,8 @@ export function LoginForm({ members, next }: { members: MemberOption[]; next?: s
   const [selected, setSelected] = useState<string>("");
 
   const fieldError = (name: string) => (result && !result.ok ? result.fieldErrors?.[name] : undefined);
+  const selectedMember = members.find((m) => m.id === selected);
+  const isAdminSelected = selectedMember?.role === "admin";
 
   return (
     <form action={formAction} className="card flex flex-col gap-5 p-6">
@@ -27,7 +29,7 @@ export function LoginForm({ members, next }: { members: MemberOption[]; next?: s
 
       <div>
         <label htmlFor="passcode" className="label">
-          패스코드
+          {isAdminSelected ? "관리자 패스코드" : "패스코드"}
         </label>
         <input
           id="passcode"
@@ -72,6 +74,7 @@ export function LoginForm({ members, next }: { members: MemberOption[]; next?: s
                     {m.nickname.slice(0, 1).toUpperCase()}
                   </span>
                   <span className="truncate">{m.nickname}</span>
+                  {m.role === "admin" ? <span className="ml-auto font-mono text-[10px] text-muted">admin</span> : null}
                 </label>
               );
             })}

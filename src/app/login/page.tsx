@@ -23,7 +23,7 @@ export default async function LoginPage({ searchParams }: Props) {
 
   const { next } = await searchParams;
   const list = await db
-    .select({ id: members.id, nickname: members.nickname, color: members.color })
+    .select({ id: members.id, nickname: members.nickname, color: members.color, role: members.role })
     .from(members)
     .where(eq(members.isActive, true))
     .orderBy(asc(members.nickname));

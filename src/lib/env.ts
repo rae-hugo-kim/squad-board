@@ -10,8 +10,11 @@ import { z } from "zod";
  * 값은 `.env.local`(로컬) 또는 배포 환경의 환경 변수에서 읽는다.
  */
 const envSchema = z.object({
-  // 소모임 공용 패스코드. 유출 시 이 값만 바꾸면 전원 재입장.
+  // 소모임 공용 패스코드(일반 멤버). 유출 시 이 값만 바꾸면 전원 재입장.
   SQUAD_PASSCODE: z.string().min(4, "SQUAD_PASSCODE는 4자 이상이어야 합니다"),
+  // 관리자 패스코드. 관리자 닉네임으로 입장할 때는 이 값을 요구한다 — 공용 코드만 알면 누구나 관리자 닉네임을
+  // 골라 관리자가 되는 구멍을 막기 위함. 없으면 SQUAD_PASSCODE로 대체되며 /api/health가 분리를 권고한다.
+  ADMIN_PASSCODE: z.string().min(4, "ADMIN_PASSCODE는 4자 이상이어야 합니다").optional(),
   // 세션 쿠키 서명 키. 32자 이상 무작위 문자열.
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET는 32자 이상이어야 합니다"),
   // SQLite 파일 경로. libsql 형식: file:./data/squad.db  (Turso 전환 시 libsql://...)

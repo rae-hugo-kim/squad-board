@@ -47,6 +47,7 @@ function envStatus() {
     hints.push("Vercel에서는 file: SQLite를 쓸 수 없습니다. DATABASE_URL을 Turso(libsql://)로 바꾸세요.");
   }
   if (scheme === "libsql" && !env.DATABASE_AUTH_TOKEN) hints.push("libsql:// 주소에는 DATABASE_AUTH_TOKEN(또는 TURSO_AUTH_TOKEN)이 필요합니다.");
+  if (!env.ADMIN_PASSCODE) hints.push("ADMIN_PASSCODE가 없어 관리자도 공용 패스코드로 입장합니다. 관리자 패스코드를 분리하려면 ADMIN_PASSCODE를 등록하세요.");
   return { missing, databaseUrlScheme: scheme, hints };
 }
 

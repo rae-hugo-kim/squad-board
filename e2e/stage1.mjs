@@ -4,6 +4,8 @@
 import { chromium } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3100";
+const PASS = process.env.E2E_PASSCODE ?? "valo1234";
+const ADMIN_PASS = process.env.E2E_ADMIN_PASSCODE ?? PASS;
 const shots = process.env.E2E_SHOTS ?? "e2e/shots";
 import { mkdirSync } from "node:fs";
 mkdirSync(shots, { recursive: true });
@@ -24,11 +26,19 @@ await page.screenshot({ path: `${shots}/01-login.png` });
 // 틀린 패스코드
 await page.fill("#passcode", "wrong");
 await page.click("label:has-text('Rae')");
+check((await page.locator("label[for=passcode]").innerText()) === "관리자 패스코드", "관리자 닉네임 선택 시 '관리자 패스코드' 라벨");
 await page.click("button[type=submit]");
 await page.waitForSelector("text=패스코드가 틀렸습니다");
 check(true, "틀린 패스코드 에러 표시");
+if (ADMIN_PASS !== PASS) {
+  // 관리자 패스코드가 분리되어 있으면 공용 코드로는 관리자 닉네임에 입장할 수 없어야 한다
+  await page.fill("#passcode", PASS);
+  await page.click("button[type=submit]");
+  await page.waitForSelector("text=관리자 패스코드가 틀렸습니다");
+  check(true, "공용 패스코드로 관리자 입장 거부");
+}
 
-await page.fill("#passcode", "valo1234");
+await page.fill("#passcode", ADMIN_PASS);
 await page.click("button[type=submit]");
 await page.waitForURL(`${BASE}/prefs/ascent`);
 check(true, "로그인 후 next 경로로 이동");

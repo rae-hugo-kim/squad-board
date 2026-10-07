@@ -6,6 +6,11 @@ import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3100";
+const PASS = process.env.E2E_PASSCODE ?? "valo1234";
+const ADMIN_PASS = process.env.E2E_ADMIN_PASSCODE ?? PASS;
+/** Rae는 시드 관리자 — 관리자 패스코드로 입장한다 */
+const passFor = (nickname) => (nickname === "Rae" ? ADMIN_PASS : PASS);
+
 const shots = process.env.E2E_SHOTS ?? "e2e/shots";
 mkdirSync(shots, { recursive: true });
 const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
@@ -19,7 +24,7 @@ function check(cond, label) { console.log(`${cond ? "PASS" : "FAIL"} ${label}`);
 async function login(nickname) {
   await page.goto(`${BASE}/login`);
   await page.waitForLoadState("networkidle");
-  await page.fill("#passcode", "valo1234");
+  await page.fill("#passcode", passFor(nickname));
   await page.click(`label:has-text('${nickname}')`);
   await page.click("button[type=submit]");
   await page.waitForURL(`${BASE}/prefs/**`);
