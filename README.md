@@ -105,6 +105,29 @@ data/                   SQLite 파일 (git 제외)
 - **맵 이미지는 자리표시자**: `public/maps/<slug>.svg`는 사이트 배치만 표시합니다. 실제 탑뷰로 바꾸려면 파일을 교체하세요.
 - **cacheComponents 끔**: 모든 화면이 세션·DB 의존 동적 페이지라 `next.config.ts`에서 껐습니다.
 
+## 배포 (Vercel + Turso)
+
+Vercel의 파일 시스템은 요청마다 사라지므로 SQLite 파일(`file:`) 대신 [Turso](https://turso.tech)(libsql)를 씁니다. 코드 변경 없이 환경 변수만 바꾸면 됩니다.
+
+1. Turso DB 생성: `turso db create squad-board` → `turso db show squad-board --url`, `turso db tokens create squad-board`
+2. Vercel 프로젝트 → Settings → Environment Variables에 다음을 등록 (Production·Preview 모두):
+
+   | 변수 | 값 |
+   | --- | --- |
+   | `SQUAD_PASSCODE` | 소모임 공용 패스코드 |
+   | `SESSION_SECRET` | `openssl rand -hex 32` 결과 |
+   | `DATABASE_URL` | `libsql://<db>-<org>.turso.io` |
+   | `DATABASE_AUTH_TOKEN` | Turso 토큰 |
+
+3. 마이그레이션과 시드는 Vercel이 아니라 **내 PC에서 Turso를 향해** 한 번 실행합니다 (`.env.local`에 위 4개 값을 넣고):
+
+   ```bash
+   npm run db:migrate && npm run db:seed
+   ```
+
+   새 마이그레이션이 생길 때마다 같은 방법으로 `db:migrate`를 다시 실행합니다.
+4. Vercel에서 다시 배포. 빌드 자체는 환경 변수 없이도 통과합니다(DB 연결은 첫 요청 때 만들어집니다). 변수가 빠지면 빌드가 아니라 첫 요청에서 "환경 변수 설정 오류"가 납니다.
+
 ## 배포 (미니PC, Docker)
 
 ```bash
