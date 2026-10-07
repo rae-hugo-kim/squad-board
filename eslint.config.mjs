@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // OMP 하네스 템플릿 파일은 앱 코드가 아니므로 린트 대상에서 제외
+    ".omp/**",
+    ".githooks/**",
+    "scripts/**",
+    "docs/**",
+    "templates/**",
+    "artifacts/**",
   ]),
 ]);
 
