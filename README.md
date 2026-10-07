@@ -2,7 +2,8 @@
 
 발로란트 소모임용 사이트 — 멤버 선호 DB · 스쿼드 편성기 · 전술 보드.
 
-현재 **1단계(A+B)** 가 구현되어 있습니다: 패스코드 입장, 멤버/맵/요원 마스터, 맵별 개인 선호 저장·열람, 관리자 화면.
+현재 **1단계(A+B)와 2단계(D+E)** 가 구현되어 있습니다: 패스코드 입장, 멤버/맵/요원 마스터, 맵별 개인 선호 저장·열람, 관리자 화면,
+스쿼드 편성기(참가자 선택 → 조합 추천·수동 조정 → 세션 시작), 세션 기록(날짜별 경기·멤버 스냅샷, 멤버별·맵별 통계).
 기획서의 단계별 범위는 아래 "로드맵"을 참고하세요.
 
 ## 기술 스택
@@ -43,7 +44,8 @@ npm run dev     # http://localhost:3000
 | `npm run dev` | 개발 서버 |
 | `npm run build` / `npm run start` | 프로덕션 빌드·실행 |
 | `npm run typecheck` / `npm run lint` | 타입 검사 / 린트 |
-| `npm run e2e` | Playwright 흐름 점검 (`e2e/stage1.mjs` 상단의 전제 참고) |
+| `npm test` | 단위 테스트 (편성기 순수 함수, `src/**/*.test.ts`) |
+| `npm run e2e` / `npm run e2e:stage2` | Playwright 흐름 점검. 같은 빈 DB에서 1단계 → 2단계 순서로 실행 (각 스크립트 상단의 전제 참고) |
 | `npm run db:generate` | `src/db/schema.ts` 변경 → 마이그레이션 SQL 생성 (`drizzle/`) |
 | `npm run db:migrate` | 마이그레이션 적용 |
 | `npm run db:seed` | 맵·요원 upsert + (멤버 0명일 때) 관리자 생성. 여러 번 실행해도 안전 |
@@ -57,9 +59,13 @@ src/
     login/              입장 화면 (패스코드 + 닉네임)
     (app)/              로그인 이후 화면 — layout.tsx 가 세션을 확인
       prefs/[slug]/     맵별 멤버 선호 매트릭스 + 내 선호 편집
+      squad/            스쿼드 편성기 (참가자·맵 선택 → 추천 조합 → 세션 시작)
+      sessions/         세션 기록 목록 + 수동 생성
+      sessions/[id]/    세션 상세: 경기 추가·결과·멤버별 K/D/A 입력, 확정
+      sessions/stats/   멤버별 · 맵별 통계
       admin/            멤버 관리, 맵 풀 토글 (관리자)
     globals.css         디자인 토큰 + Tailwind 테마
-  components/           공용 UI (상단 네비, 역할군 점)
+  components/           공용 UI (상단 네비, 역할군 점, 요원 선택, 결과 배지)
   db/
     schema.ts           테이블 정의 (Drizzle)
     seed-data.ts        맵·요원 마스터 — 신규 맵/요원은 여기에 추가
@@ -69,9 +75,11 @@ src/
     session.ts          서명된 세션 쿠키 (HMAC, 90일)
     auth.ts             requireMember / requireAdmin
     logger.ts           구조화 로그
+    date.ts             날짜 문자열 유틸 (Asia/Seoul 기준 오늘)
+    squad/compose.ts    편성기 순수 함수 (제약 → 점수 → 상위 3개) + 단위 테스트
   server/
-    actions/            서버 액션 (폼 처리) — auth, prefs, admin
-    queries/            조회 함수
+    actions/            서버 액션 (폼 처리) — auth, prefs, admin, sessions
+    queries/            조회 함수 — prefs, squad, sessions(통계 포함)
   proxy.ts              요청 가드 (세션 없으면 /login)
 drizzle/                마이그레이션 SQL (커밋 대상)
 data/                   SQLite 파일 (git 제외)
@@ -83,6 +91,8 @@ data/                   SQLite 파일 (git 제외)
   강제 전원 로그아웃은 `SESSION_SECRET`을, 패스코드 유출은 `SQUAD_PASSCODE`를 바꾸면 됩니다.
 - **권한**: 개인 선호는 본인만 수정(서버 액션이 세션에서 멤버 id를 꺼내며, 폼 값은 믿지 않음). 관리자 액션은 첫 줄에서 `requireAdmin()`.
 - **멤버 삭제 없음**: 비활성화만 합니다. 2단계의 세션 기록이 과거 멤버를 참조하기 때문입니다.
+- **편성기는 보조 도구**: 결과를 강제하지 않고 근거(선호 순위·역할군·경고)를 보여줍니다. 규칙(전략가 1·척후대 1 이상)은 상수이고, 참가자는 최대 10명까지 계산합니다.
+- **세션 기록은 스냅샷**: 경기별 멤버 행에 요원·포지션을 복사해 두므로 나중에 선호를 바꿔도 과거 기록은 그대로입니다. 확정된 경기는 관리자만 수정할 수 있습니다.
 - **좌표 정규화**(3단계 예정): 전술 보드 객체 좌표는 맵 기준 0~1로 저장합니다.
 - **cacheComponents 끔**: 모든 화면이 세션·DB 의존 동적 페이지라 `next.config.ts`에서 껐습니다.
 
@@ -107,6 +117,6 @@ docker run -d --name squad-board -p 3000:3000 \
 ## 로드맵 (기획서 기준)
 
 - [x] 1단계 — 패스코드 입장, 멤버/맵/요원, 맵별 선호 DB, 관리 화면
-- [ ] 2단계 — 스쿼드 편성기(참가자 선택 → 조합 추천·근거), 세션 기록(날짜별·멤버별 스냅샷)
+- [x] 2단계 — 스쿼드 편성기(참가자 선택 → 조합 추천·근거), 세션 기록(날짜별·멤버별 스냅샷)
 - [ ] 3단계 — 전술 보드(맵별 복수 전술, 핑·경로, 단계 스냅샷, 겹쳐보기, PNG 내보내기)
 - [ ] 4단계 — eDPI 감도 찾기, 외부 라인업 링크
