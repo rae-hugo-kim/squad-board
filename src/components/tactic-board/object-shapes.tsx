@@ -2,7 +2,7 @@
 
 import type { Ability, RoleGroup } from "@/db/schema";
 import { ROLE_LABELS } from "@/db/seed-data";
-import { arrowHead, BOARD, sectorPath, starPoints } from "@/lib/tactics/geometry";
+import { arrowHead, BOARD, sectorHandle, sectorPath, starPoints, wallEndpoints } from "@/lib/tactics/geometry";
 import { ALLY_COLOR, ENEMY_COLOR, OBJECT_META, type BoardObject } from "@/lib/tactics/types";
 
 export type AgentLite = { id: string; nameKo: string; roleGroup: RoleGroup; iconUrl?: string | null; abilities?: Ability[] };
@@ -230,6 +230,47 @@ export function ObjectShape({
         </g>
       );
     }
+    case "wall": {
+      // 벽형 스킬: 중심·길이·회전으로 양 끝점을 구해 굵은 선으로. 분절 눈금 4개(세이지 방벽처럼)로 길이감을 준다.
+      const [a, b] = wallEndpoints({ x: cx, y: cy }, (obj.length ?? 0.07) * BOARD, obj.rotation);
+      const color = hue ?? base;
+      const w = Math.max(5 / scale, 6);
+      const ticks = [0.25, 0.5, 0.75].map((t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }));
+      const nx = -(b.y - a.y);
+      const ny = b.x - a.x;
+      const nl = Math.hypot(nx, ny) || 1;
+      const tx = (nx / nl) * (w * 0.9);
+      const ty = (ny / nl) * (w * 0.9);
+      return (
+        <g>
+          {selected ? <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#ff4655" strokeWidth={w + 8 / scale} strokeOpacity={0.35} strokeLinecap="round" /> : null}
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#0a1017" strokeWidth={w + 2 / scale} strokeLinecap="round" />
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={w} strokeLinecap="round" opacity={0.9} />
+          {ticks.map((t, i) => (
+            <line key={i} x1={t.x - tx} y1={t.y - ty} x2={t.x + tx} y2={t.y + ty} stroke="#0a1017" strokeWidth={1.2 / scale} opacity={0.7} />
+          ))}
+          <AbilityBadge obj={obj} agentById={agentById} cx={cx} cy={cy} scale={scale} />
+          {label}
+        </g>
+      );
+    }
+    case "draw": {
+      // 자유 그리기: 화살촉 없는 부드러운 선. 색은 견본에서 고른 값(없으면 흰색).
+      if (obj.points.length < 2) return null;
+      const pts = obj.points.map((p) => `${(p.x * BOARD).toFixed(1)},${(p.y * BOARD).toFixed(1)}`).join(" ");
+      const color = hue ?? obj.color ?? base;
+      return (
+        <g>
+          {selected ? <polyline points={pts} fill="none" stroke="#ff4655" strokeWidth={(3 + 6) / scale} strokeOpacity={0.35} strokeLinejoin="round" strokeLinecap="round" /> : null}
+          <polyline points={pts} fill="none" stroke={color} strokeWidth={3 / scale} strokeLinejoin="round" strokeLinecap="round" />
+          {obj.label ? (
+            <text x={obj.points[0].x * BOARD} y={obj.points[0].y * BOARD - 6 / scale} fontSize={fontSize} fill="#ece8e1" stroke="#0a1017" strokeWidth={3 / scale} paintOrder="stroke" fontFamily="Pretendard, sans-serif">
+              {obj.label}
+            </text>
+          ) : null}
+        </g>
+      );
+    }
     case "path_ally":
     case "path_enemy_expected":
     case "path_enemy_actual": {
@@ -276,4 +317,55 @@ export function LinkLine({ from, to, hue, scale }: { from: BoardObject; to: Boar
       opacity={0.7}
     />
   );
+}
+
+export type HandleKind = "radius" | "dir" | "end-a" | "end-b";
+
+/**
+ * 선택한 객체의 조절 핸들 (편집 가능할 때만). 연막·몰리 = 반경, 정보 스킬 = 방향·반경, 벽 = 양 끝(길이·회전).
+ * 핸들은 화면 크기가 일정하도록 scale로 나눈다. pointerdown은 편집기가 받아 드래그 모드를 바꾼다.
+ */
+export function ObjectHandles({ obj, scale, onPointerDown }: { obj: BoardObject; scale: number; onPointerDown: (e: React.PointerEvent<SVGCircleElement>, handle: HandleKind) => void }) {
+  const cx = obj.x * BOARD;
+  const cy = obj.y * BOARD;
+  const r = 7 / scale;
+  const dot = (handle: HandleKind, x: number, y: number, title: string) => (
+    <circle
+      key={handle}
+      cx={x}
+      cy={y}
+      r={r}
+      fill="#ece8e1"
+      stroke="#ff4655"
+      strokeWidth={2 / scale}
+      style={{ cursor: handle === "radius" ? "ew-resize" : "grab" }}
+      data-handle={handle}
+      onPointerDown={(e) => onPointerDown(e, handle)}
+    >
+      <title>{title}</title>
+    </circle>
+  );
+  if (obj.kind === "smoke" || obj.kind === "molly") {
+    const rr = (obj.radius ?? 0.03) * BOARD;
+    return <g data-handles>{dot("radius", cx + rr, cy, "드래그해 반경 조절")}</g>;
+  }
+  if (obj.kind === "recon") {
+    const h = sectorHandle({ x: cx, y: cy }, (obj.radius ?? 0.08) * BOARD, obj.rotation);
+    return (
+      <g data-handles>
+        <line x1={cx} y1={cy} x2={h.x} y2={h.y} stroke="#ff4655" strokeWidth={1 / scale} strokeDasharray={`${3 / scale} ${3 / scale}`} pointerEvents="none" />
+        {dot("dir", h.x, h.y, "드래그해 방향·범위 조절")}
+      </g>
+    );
+  }
+  if (obj.kind === "wall") {
+    const [a, b] = wallEndpoints({ x: cx, y: cy }, (obj.length ?? 0.07) * BOARD, obj.rotation);
+    return (
+      <g data-handles>
+        {dot("end-a", a.x, a.y, "드래그해 길이·회전 조절")}
+        {dot("end-b", b.x, b.y, "드래그해 길이·회전 조절")}
+      </g>
+    );
+  }
+  return null;
 }

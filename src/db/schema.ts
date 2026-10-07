@@ -60,6 +60,10 @@ export const TACTIC_OBJECT_KINDS = [
   "path_ally",
   "path_enemy_expected",
   "path_enemy_actual",
+  /** 벽형 스킬(세이지 방벽, 바이퍼 독성 장막 등): 중심 x/y + 길이 + 회전. 2026-10-07 추가 */
+  "wall",
+  /** 자유 그리기(프리핸드): points만 쓰고 화살촉 없음. 2026-10-07 추가 */
+  "draw",
 ] as const;
 export type TacticObjectKind = (typeof TACTIC_OBJECT_KINDS)[number];
 export type Point = { x: number; y: number };
@@ -333,6 +337,8 @@ export const tacticObjects = sqliteTable(
     /** 반경(연막·몰리, 맵 폭 대비 비율)과 부채꼴 각도(정보 스킬, 도) */
     radius: real("radius"),
     angle: real("angle"),
+    /** 벽형 스킬의 길이(맵 폭 대비 비율). 실제 미터 ↔ 비율 환산은 maps.units_per_board 기준 */
+    length: real("length"),
     /** 회전(도). 토큰 방향·부채꼴 방향 */
     rotation: real("rotation").notNull().default(0),
     /** 색 덮어쓰기(hex). null이면 종류별 기본 토큰 색 */

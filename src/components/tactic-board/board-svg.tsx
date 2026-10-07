@@ -1,10 +1,10 @@
 "use client";
 
-import { forwardRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { forwardRef, useEffect, useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type { MapCallout, Point } from "@/db/schema";
 import { BOARD, type View } from "@/lib/tactics/geometry";
 import { OBJECT_META, type BoardObject } from "@/lib/tactics/types";
-import { LinkLine, ObjectShape, type AgentLite, type SlotMemberLite } from "./object-shapes";
+import { LinkLine, ObjectHandles, ObjectShape, type AgentLite, type HandleKind, type SlotMemberLite } from "./object-shapes";
 
 export type BoardLayer = {
   id: string;
@@ -32,6 +32,8 @@ type Props = {
   onPointerMove?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onPointerUp?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onObjectPointerDown?: (e: ReactPointerEvent<SVGGElement>, obj: BoardObject) => void;
+  /** 선택 객체의 조절 핸들(반경·방향·벽 끝) — 있으면 편집 가능한 상태로 보고 핸들을 그린다 */
+  onHandlePointerDown?: (e: ReactPointerEvent<SVGCircleElement>, obj: BoardObject, handle: HandleKind) => void;
   onWheel?: (e: ReactWheelEvent<SVGSVGElement>) => void;
   onDoubleClick?: () => void;
   cursor?: string;
@@ -44,15 +46,31 @@ type Props = {
  * viewBox는 1000×1000 고정이고 확대·이동은 안쪽 <g transform>으로 처리한다 (좌표 변환이 단순해진다).
  */
 export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
-  { mapImage, callouts, showCallouts, layers, agentById, slotMembers, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onWheel, onDoubleClick, cursor, className },
+  { mapImage, callouts, showCallouts, layers, agentById, slotMembers, view, selectedId, draftPoints, draftKind, onCanvasPointerDown, onPointerMove, onPointerUp, onObjectPointerDown, onHandlePointerDown, onWheel, onDoubleClick, cursor, className },
   ref,
 ) {
+  const inner = useRef<SVGSVGElement | null>(null);
+  const setRefs = (el: SVGSVGElement | null) => {
+    inner.current = el;
+    if (typeof ref === "function") ref(el);
+    else if (ref) ref.current = el;
+  };
+  // 휠 확대 중 페이지가 같이 스크롤되는 문제: React의 onWheel은 passive로 붙어 preventDefault가 듣지 않는다.
+  // 요소에 non-passive 네이티브 리스너를 직접 달아 기본 동작(스크롤)만 막고, 확대 로직은 onWheel이 그대로 받는다.
+  useEffect(() => {
+    const el = inner.current;
+    if (!el || !onWheel) return;
+    const block = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener("wheel", block, { passive: false });
+    return () => el.removeEventListener("wheel", block);
+  }, [onWheel]);
+  const selectedObj = selectedId && onHandlePointerDown ? layers.flatMap((l) => l.objects).find((o) => o.id === selectedId) : undefined;
   return (
     <svg
-      ref={ref}
+      ref={setRefs}
       viewBox={`0 0 ${BOARD} ${BOARD}`}
       className={className ?? "h-full w-full touch-none select-none"}
-      style={{ background: "var(--bg-canvas)", cursor: cursor ?? "default" }}
+      style={{ background: "var(--bg-canvas)", cursor: cursor ?? "default", overscrollBehavior: "contain" }}
       onPointerDown={onCanvasPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -108,18 +126,21 @@ export const BoardSvg = forwardRef<SVGSVGElement, Props>(function BoardSvg(
             </g>
           );
         })}
+        {selectedObj ? <ObjectHandles obj={selectedObj} scale={view.scale} onPointerDown={(e, handle) => onHandlePointerDown!(e, selectedObj, handle)} /> : null}
         {draftPoints && draftPoints.length > 0 ? (
           <g pointerEvents="none">
             <polyline
               points={draftPoints.map((p) => `${p.x * BOARD},${p.y * BOARD}`).join(" ")}
               fill="none"
-              stroke={draftKind === "path_ally" ? "#2ee6d6" : "#ff8a3d"}
-              strokeWidth={2 / view.scale}
-              strokeDasharray={`${4 / view.scale} ${4 / view.scale}`}
+              stroke={draftKind === "draw" ? "#ece8e1" : draftKind === "path_ally" ? "#2ee6d6" : "#ff8a3d"}
+              strokeWidth={(draftKind === "draw" ? 3 : 2) / view.scale}
+              strokeDasharray={draftKind === "draw" ? undefined : `${4 / view.scale} ${4 / view.scale}`}
+              strokeLinejoin="round"
+              strokeLinecap="round"
             />
-            {draftPoints.map((p, i) => (
-              <circle key={i} cx={p.x * BOARD} cy={p.y * BOARD} r={4 / view.scale} fill="#ece8e1" />
-            ))}
+            {draftKind !== "draw"
+              ? draftPoints.map((p, i) => <circle key={i} cx={p.x * BOARD} cy={p.y * BOARD} r={4 / view.scale} fill="#ece8e1" />)
+              : null}
           </g>
         ) : null}
       </g>

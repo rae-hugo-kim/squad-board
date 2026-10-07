@@ -99,3 +99,38 @@ export function distanceToPolyline(p: Point, pts: Point[]): number {
 export function translatePoints(pts: Point[], dx: number, dy: number): Point[] {
   return pts.map((p) => ({ x: p.x + dx, y: p.y + dy }));
 }
+
+/** 두 점이 이루는 각(도). 0 = +x(오른쪽), 시계 방향 양수(SVG 좌표계). */
+export function angleDeg(from: Point, to: Point): number {
+  return (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI;
+}
+
+/** 벽 양 끝점 (보드 비율). rotation 0 = 가로, 중심 기준 대칭. */
+export function wallEndpoints(center: Point, length: number, rotationDeg: number): [Point, Point] {
+  const a = (rotationDeg * Math.PI) / 180;
+  const dx = (Math.cos(a) * length) / 2;
+  const dy = (Math.sin(a) * length) / 2;
+  return [
+    { x: center.x - dx, y: center.y - dy },
+    { x: center.x + dx, y: center.y + dy },
+  ];
+}
+
+/** 부채꼴 방향(rotation, 0 = 위쪽·시계 방향)과 반경으로 호 중앙점 — 방향·반경 핸들 위치 */
+export function sectorHandle(center: Point, radius: number, rotationDeg: number): Point {
+  const a = ((rotationDeg - 90) * Math.PI) / 180;
+  return { x: center.x + Math.cos(a) * radius, y: center.y + Math.sin(a) * radius };
+}
+
+/** 점 → 부채꼴 방향 각(도, 0 = 위쪽·시계 방향) */
+export function sectorRotationTo(center: Point, p: Point): number {
+  return angleDeg(center, p) + 90;
+}
+
+/** 자유 그리기: 직전 점과 충분히 떨어졌을 때만 추가 (점 수 폭증 방지) */
+export function appendIfFar(points: Point[], p: Point, minStep: number, max: number): Point[] {
+  if (points.length >= max) return points;
+  const last = points[points.length - 1];
+  if (last && Math.hypot(p.x - last.x, p.y - last.y) < minStep) return points;
+  return [...points, p];
+}
